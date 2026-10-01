@@ -31,7 +31,7 @@ if st.session_state.user is None:
     email_login = st.text_input("E-mail", key="login_email")
     senha_login = st.text_input("Senha", type="password", key="login_senha")
     
-    if st.button("Entrar", type="primary"):
+    if st.button("Entrar", type="primary", key="btn_entrar"):
         if email_login and senha_login:
             try:
                 res = supabase.auth.sign_in_with_password({
@@ -53,7 +53,7 @@ if st.session_state.user is None:
 # ==========================================
 st.sidebar.write(f"👤 Usuário: **{st.session_state.user.email}**")
 
-if st.sidebar.button("Sair (Logout)"):
+if st.sidebar.button("Sair (Logout)", key="btn_logout"):
     supabase.auth.sign_out()
     st.session_state.user = None
     st.rerun()
@@ -65,7 +65,7 @@ with st.sidebar.expander("➕ Cadastrar Novo Usuário"):
     novo_email = st.text_input("E-mail do novo usuário", key="cad_email")
     nova_senha = st.text_input("Senha inicial", type="password", key="cad_senha")
     
-    if st.button("Criar Conta"):
+    if st.button("Criar Conta", key="btn_criar_usuario"):
         if novo_email and nova_senha:
             try:
                 res = supabase.auth.sign_up({
@@ -79,42 +79,7 @@ with st.sidebar.expander("➕ Cadastrar Novo Usuário"):
             st.warning("Preencha e-mail e senha.")
 
 # ==========================================
-# 4. O SEU CÓDIGO ATUAL DE EXIBIÇÃO DE ATIVOS
-# (MANTENHA AQUI TODO O SEU CÓDIGO ORIGINAL DAS TABELAS E MÉTRICAS)
-# ==========================================
-
-st.sidebar.write(f"👤 Usuário: **{st.session_state.user.email}**")
-if st.sidebar.button("Sair (Logout)"):
-    supabase.auth.sign_out()
-    st.session_state.user = None
-    st.rerun()
-
-# ==========================================
-# 4. O SEU CÓDIGO ATUAL DE EXIBIÇÃO DE ATIVOS
-# (MANTENHA AQUI TODO O SEU CÓDIGO ORIGINAL QUE JÁ ESTÁ FUNCIONANDO)
-# ==========================================
-
-import streamlit as st
-import pandas as pd
-from datetime import datetime
-from supabase import create_client, Client
-
-st.set_page_config(page_title="Gestão de Ativos TI - Cloud", layout="wide")
-
-# ==========================================
-# CONFIGURAÇÃO DO SUPABASE (BANCO DE DADOS NUVEM)
-# ==========================================
-SUPABASE_URL = "https://iipvcbqyrwmwjbizavlw.supabase.co"
-SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlpcHZjYnF5cndtd2piaXphdmx3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA4NzQ4OTQsImV4cCI6MjEwNjQ1MDg5NH0.yXtk30yQrmzwFFbMBFgoTt2-S7qnhzoyEWlWs9qywp4"
-
-@st.cache_resource
-def init_supabase() -> Client:
-    return create_client(SUPABASE_URL, SUPABASE_KEY)
-
-supabase = init_supabase()
-
-# ==========================================
-# LEITURA DE DADOS
+# 4. LEITURA DE DADOS DO SUPABASE
 # ==========================================
 def carregar_bons():
     try:
@@ -148,7 +113,7 @@ def carregar_ruins():
         return pd.DataFrame(columns=["Tipo", "Serial", "Marca", "Nova_Leva", "Status", "Status_Coleta", "Numero_Chamado", "Defeito_Descricao", "Usuario_Anterior", "Setor_Anterior", "Data_Registro", "Data_Coleta"])
 
 # ==========================================
-# INTERFACE PRINCIPAL
+# 5. INTERFACE PRINCIPAL
 # ==========================================
 st.title("🖥️ Gestão de Ativos TI (Nuvem)")
 
@@ -277,7 +242,7 @@ with tab2:
     else:
         st.info("Nenhum equipamento com defeito cadastrado.")
 
-# TAB 3: CADASTRO
+# TAB 3: CADASTRO DE EQUIPAMENTOS
 with tab3:
     st.subheader("➕ Entrada de Equipamentos")
     tipo_registro = st.radio("Estado Inicial:", ["🟢 BOM / Operacional (Home Office ou Depósito TI)", "🔴 RUIM / Com Defeito"])
