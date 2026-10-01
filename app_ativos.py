@@ -17,9 +17,16 @@ def init_supabase() -> Client:
 
 supabase = init_supabase()
 
-# Controle de sessão do usuário
-if "user" not in st.session_state:
-    st.session_state.user = None
+# Recupera a sessão salva no Supabase (caso já tenha feito login anteriormente)
+if "user" not in st.session_state or st.session_state.user is None:
+    try:
+        session = supabase.auth.get_session()
+        if session and session.user:
+            st.session_state.user = session.user
+        else:
+            st.session_state.user = None
+    except Exception:
+        st.session_state.user = None
 
 # ==========================================
 # 2. TELA DE LOGIN (PÚBLICA)
@@ -47,7 +54,6 @@ if st.session_state.user is None:
             st.warning("Preencha o e-mail e a senha.")
 
     st.stop()  # Impede a visualização do painel se não estiver logado
-
 # ==========================================
 # 3. BARRA LATERAL (LOGOUT E CADASTRO PRIVADO)
 # ==========================================
