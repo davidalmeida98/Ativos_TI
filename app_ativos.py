@@ -22,56 +22,67 @@ if "user" not in st.session_state:
     st.session_state.user = None
 
 # ==========================================
-# 2. TELA DE LOGIN E CADASTRO
+# 2. TELA DE LOGIN (PÚBLICA)
 # ==========================================
 if st.session_state.user is None:
     st.title("🔒 Acesso ao Sistema de Ativos TI")
     
-    aba_login, aba_cadastro = st.tabs(["Entrar (Login)", "Novo Cadastro"])
+    st.subheader("Login")
+    email_login = st.text_input("E-mail", key="login_email")
+    senha_login = st.text_input("Senha", type="password", key="login_senha")
     
-    with aba_login:
-        st.subheader("Login")
-        email_login = st.text_input("E-mail", key="login_email")
-        senha_login = st.text_input("Senha", type="password", key="login_senha")
-        
-        if st.button("Entrar", type="primary"):
-            if email_login and senha_login:
-                try:
-                    res = supabase.auth.sign_in_with_password({
-                        "email": email_login,
-                        "password": senha_login
-                    })
-                    st.session_state.user = res.user
-                    st.success("Login efetuado com sucesso!")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Erro ao fazer login: {e}")
-            else:
-                st.warning("Preencha o e-mail e a senha.")
+    if st.button("Entrar", type="primary"):
+        if email_login and senha_login:
+            try:
+                res = supabase.auth.sign_in_with_password({
+                    "email": email_login,
+                    "password": senha_login
+                })
+                st.session_state.user = res.user
+                st.success("Login efetuado com sucesso!")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Erro ao fazer login: {e}")
+        else:
+            st.warning("Preencha o e-mail e a senha.")
 
-    with aba_cadastro:
-        st.subheader("Criar uma nova conta")
-        email_cad = st.text_input("E-mail para cadastro", key="cad_email")
-        senha_cad = st.text_input("Senha (mínimo 6 caracteres)", type="password", key="cad_senha")
-        
-        if st.button("Cadastrar Usuário"):
-            if email_cad and senha_cad:
-                try:
-                    res = supabase.auth.sign_up({
-                        "email": email_cad,
-                        "password": senha_cad
-                    })
-                    st.success("Conta criada com sucesso! Faça login na aba ao lado.")
-                except Exception as e:
-                    st.error(f"Erro no cadastro: {e}")
-            else:
-                st.warning("Preencha todos os campos.")
-
-    st.stop()  # Bloqueia a visualização do painel se não estiver logado
+    st.stop()  # Impede a visualização do painel se não estiver logado
 
 # ==========================================
-# 3. BARRA LATERAL (BOTÃO DE LOGOUT)
+# 3. BARRA LATERAL (LOGOUT E CADASTRO PRIVADO)
 # ==========================================
+st.sidebar.write(f"👤 Usuário: **{st.session_state.user.email}**")
+
+if st.sidebar.button("Sair (Logout)"):
+    supabase.auth.sign_out()
+    st.session_state.user = None
+    st.rerun()
+
+st.sidebar.markdown("---")
+
+# Área Restrita na Barra Lateral para Cadastrar Novos Usuários
+with st.sidebar.expander("➕ Cadastrar Novo Usuário"):
+    novo_email = st.text_input("E-mail do novo usuário", key="cad_email")
+    nova_senha = st.text_input("Senha inicial", type="password", key="cad_senha")
+    
+    if st.button("Criar Conta"):
+        if novo_email and nova_senha:
+            try:
+                res = supabase.auth.sign_up({
+                    "email": novo_email,
+                    "password": nova_senha
+                })
+                st.success(f"Conta criada para {novo_email}!")
+            except Exception as e:
+                st.error(f"Erro ao cadastrar: {e}")
+        else:
+            st.warning("Preencha e-mail e senha.")
+
+# ==========================================
+# 4. O SEU CÓDIGO ATUAL DE EXIBIÇÃO DE ATIVOS
+# (MANTENHA AQUI TODO O SEU CÓDIGO ORIGINAL DAS TABELAS E MÉTRICAS)
+# ==========================================
+
 st.sidebar.write(f"👤 Usuário: **{st.session_state.user.email}**")
 if st.sidebar.button("Sair (Logout)"):
     supabase.auth.sign_out()
