@@ -8,7 +8,7 @@ st.set_page_config(page_title="Gestão de Ativos TI - Cloud", layout="wide")
 # ==========================================
 # CONFIGURAÇÃO DO SUPABASE (BANCO DE DADOS NUVEM)
 # ==========================================
-SUPABASE_URL = "https://iipvcbqyrwmwjbizavfw.supabase.co"
+SUPABASE_URL = "https://iipvcbqyrwmwjbizavlw.supabase.co"
 SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlpcHZjYnF5cndtd2piaXphdmx3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA4NzQ4OTQsImV4cCI6MjEwNjQ1MDg5NH0.yXtk30yQrmzwFFbMBFgoTt2-S7qnhzoyEWlWs9qywp4"
 
 @st.cache_resource
