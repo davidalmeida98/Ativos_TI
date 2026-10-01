@@ -60,27 +60,6 @@ if st.sidebar.button("Sair (Logout)", key="btn_logout"):
 
 st.sidebar.markdown("---")
 
-# Área Restrita na Barra Lateral com Limpeza Automática dos Campos
-with st.sidebar.expander("➕ Cadastrar Novo Usuário"):
-    with st.form("form_novo_usuario", clear_on_submit=True):
-        novo_email = st.text_input("E-mail do novo usuário", key="cad_email")
-        nova_senha = st.text_input("Senha inicial", type="password", key="cad_senha")
-        
-        btn_criar = st.form_submit_button("Criar Conta")
-        
-        if btn_criar:
-            if novo_email and nova_senha:
-                try:
-                    res = supabase.auth.sign_up({
-                        "email": novo_email,
-                        "password": nova_senha
-                    })
-                    st.success(f"Conta criada para {novo_email}!")
-                except Exception as e:
-                    st.error(f"Erro ao cadastrar: {e}")
-            else:
-                st.warning("Preencha e-mail e senha.")
-
 # Área Restrita na Barra Lateral para Cadastrar Novos Usuários
 with st.sidebar.expander("➕ Cadastrar Novo Usuário"):
     novo_email = st.text_input("E-mail do novo usuário", key="cad_email")
