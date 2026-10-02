@@ -6,27 +6,20 @@ from supabase import create_client, Client
 st.set_page_config(page_title="Gestão de Ativos TI - Cloud", layout="wide")
 
 # ==========================================
-# REMOVER WIDGETS/ÍCONES DE STATUS E STREAMLIT
+# OCULTAR MENU E RODAPÉ (SEM GERAR ERROS)
 # ==========================================
-ocultar_elementos_css = """
+st.markdown("""
     <style>
-    /* Oculta ícone de status/execução do Streamlit (botão Stop/Running) */
-    [data-testid="stStatusWidget"] {
-        display: none !important;
-        visibility: hidden !important;
-    }
-    /* Oculta o menu de rodape do Streamlit */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
+    header {visibility: hidden;}
     </style>
-"""
-st.markdown(ocultar_elementos_css, unsafe_allow_html=True)
+""", unsafe_allow_html=True)
 
-# Domínio padrão para permitir logins simples sem digitar @email.com
 DOMINIO_PADRAO = "@sistema.local"
 
 def tratar_usuario_ou_email(entrada: str) -> str:
-    """Se o usuário não digitar '@', anexa o domínio padrão automaticamente."""
+    """Anexa o domínio padrão caso o usuário não digite '@'."""
     entrada = entrada.strip().lower()
     if not entrada:
         return ""
@@ -35,7 +28,7 @@ def tratar_usuario_ou_email(entrada: str) -> str:
     return entrada
 
 def formatar_nome_exibicao(email: str) -> str:
-    """Remove o domínio padrão na exibição da tela para mostrar só o nome do usuário."""
+    """Remove o domínio padrão para exibir apenas o nome de usuário."""
     if email and email.endswith(DOMINIO_PADRAO):
         return email.replace(DOMINIO_PADRAO, "")
     return email
@@ -52,7 +45,7 @@ def init_supabase() -> Client:
 
 supabase = init_supabase()
 
-# Persistência de Login
+# Persistência de Sessão
 if "user" not in st.session_state or st.session_state.user is None:
     try:
         session = supabase.auth.get_session()
@@ -61,13 +54,13 @@ if "user" not in st.session_state or st.session_state.user is None:
         st.session_state.user = None
 
 # ==========================================
-# 2. TELA DE LOGIN (SUPORTA LOGIN SIMPLES)
+# 2. TELA DE LOGIN (SUPORTA USERNAME SIMPLES)
 # ==========================================
 if st.session_state.user is None:
     st.title("🔒 Acesso ao Sistema de Ativos TI")
     st.subheader("Login")
     
-    usuario_input = st.text_input("Usuário (ex: matheus.henrique) ou E-mail completo", key="login_email")
+    usuario_input = st.text_input("Usuário ou E-mail", key="login_email")
     senha_login = st.text_input("Senha", type="password", key="login_senha")
     
     if st.button("Entrar", type="primary", key="btn_entrar"):
@@ -81,7 +74,7 @@ if st.session_state.user is None:
                 st.session_state.user = res.user
                 st.success("Login efetuado com sucesso!")
                 st.rerun()
-            except Exception as e:
+            except Exception:
                 st.error("Erro ao fazer login: Usuário ou senha incorretos.")
         else:
             st.warning("Preencha o usuário e a senha.")
@@ -148,7 +141,7 @@ with st.sidebar.expander("➕ Cadastrar Novo Usuário"):
                         "email": email_cadastro,
                         "password": nova_senha
                     })
-                    st.success(f"Conta criada com sucesso para '{formatar_nome_exibicao(email_cadastro)}'!")
+                    st.success(f"Conta criada para '{formatar_nome_exibicao(email_cadastro)}'!")
                 except Exception as e:
                     st.error(f"Erro ao cadastrar: {e}")
             else:
@@ -196,7 +189,6 @@ st.title("🖥️ Gestão de Ativos TI (Nuvem)")
 df_bons = carregar_bons()
 df_ruins = carregar_ruins()
 
-# Métricas
 aguardando = len(df_ruins[df_ruins["Status_Coleta"] == "Aguardando Coleta"]) if not df_ruins.empty else 0
 coletados = len(df_ruins[df_ruins["Status_Coleta"].str.contains("Coletado", na=False)]) if not df_ruins.empty else 0
 
