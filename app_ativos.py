@@ -46,14 +46,14 @@ def init_supabase() -> Client:
 
 supabase = init_supabase()
 
-# Controle estrito de sessão por navegador (Isolado por usuário)
+# Controle estrito de sessão por navegador
 if "user_authenticated" not in st.session_state:
     st.session_state.user_authenticated = False
 if "user_email" not in st.session_state:
     st.session_state.user_email = None
 
 # ==========================================
-# 2. TELA DE LOGIN OBRIGATÓRIA (ISOLADA)
+# 2. TELA DE LOGIN OBRIGATÓRIA
 # ==========================================
 if not st.session_state.user_authenticated:
     st.title("🔒 Acesso ao Sistema de Ativos TI")
@@ -83,7 +83,7 @@ if not st.session_state.user_authenticated:
     st.stop()
 
 # ==========================================
-# 3. LEITURA DE DADOS
+# 3. LEITURA DE DADOS DO SUPABASE
 # ==========================================
 def carregar_bons():
     try:
@@ -119,7 +119,7 @@ def carregar_ruins():
         return pd.DataFrame(columns=["Tipo", "Serial", "Marca", "Nova_Leva", "Status", "Status_Coleta", "Numero_Chamado", "Defeito_Descricao", "Usuario_Anterior", "Setor_Anterior", "Data_Registro", "Data_Coleta"])
 
 # ==========================================
-# 4. BARRA LATERAL (CADASTRO SEM TROCAR SESSÃO)
+# 4. BARRA LATERAL (APENAS LOGOUT)
 # ==========================================
 nome_usuario_atual = formatar_nome_exibicao(st.session_state.user_email)
 st.sidebar.write(f"👤 Usuário Conectado: **{nome_usuario_atual}**")
@@ -134,28 +134,6 @@ if st.sidebar.button("Sair (Logout)", key="btn_logout"):
     st.rerun()
 
 st.sidebar.markdown("---")
-
-with st.sidebar.expander("➕ Cadastrar Novo Usuário"):
-    with st.form("form_novo_usuario", clear_on_submit=True):
-        novo_usuario_input = st.text_input("Nome de Usuário (ex: matheus.henrique)", key="cad_email")
-        nova_senha = st.text_input("Senha inicial", type="password", key="cad_senha")
-        btn_criar = st.form_submit_button("Criar Conta")
-        
-        if btn_criar:
-            if novo_usuario_input and nova_senha:
-                email_cadastro = tratar_usuario_ou_email(novo_usuario_input)
-                try:
-                    # Cliente Supabase independente para não deslogar nem alterar o usuário atual
-                    auth_client = create_client(SUPABASE_URL, SUPABASE_KEY)
-                    auth_client.auth.sign_up({
-                        "email": email_cadastro,
-                        "password": nova_senha
-                    })
-                    st.success(f"Conta criada com sucesso para '{formatar_nome_exibicao(email_cadastro)}'!")
-                except Exception as e:
-                    st.error(f"Erro ao cadastrar: {e}")
-            else:
-                st.warning("Preencha o nome de usuário e a senha.")
 
 # ==========================================
 # 5. INTERFACE PRINCIPAL
