@@ -5,6 +5,24 @@ from supabase import create_client, Client
 
 st.set_page_config(page_title="Gestão de Ativos TI - Cloud", layout="wide")
 
+# Domínio padrão para permitir logins simples sem digitar @email.com
+DOMINIO_PADRAO = "@sistema.local"
+
+def tratar_usuario_ou_email(entrada: str) -> str:
+    """Se o usuário não digitar '@', anexa o domínio padrão automaticamente."""
+    entrada = entrada.strip().lower()
+    if not entrada:
+        return ""
+    if "@" not in entrada:
+        return f"{entrada}{DOMINIO_PADRAO}"
+    return entrada
+
+def formatar_nome_exibicao(email: str) -> str:
+    """Remove o domínio padrão na exibição da tela para mostrar só o nome do usuário."""
+    if email and email.endswith(DOMINIO_PADRAO):
+        return email.replace(DOMINIO_PADRAO, "")
+    return email
+
 # ==========================================
 # 1. CONFIGURAÇÃO DO SUPABASE (VIA SECRETS)
 # ==========================================
@@ -17,7 +35,7 @@ def init_supabase() -> Client:
 
 supabase = init_supabase()
 
-# Persistência de Login (Recupera sessão ativa)
+# Persistência de Login
 if "user" not in st.session_state or st.session_state.user is None:
     try:
         session = supabase.auth.get_session()
@@ -26,28 +44,30 @@ if "user" not in st.session_state or st.session_state.user is None:
         st.session_state.user = None
 
 # ==========================================
-# 2. TELA DE LOGIN (PÚBLICA)
+# 2. TELA DE LOGIN (SUPORTA LOGIN SIMPLES)
 # ==========================================
 if st.session_state.user is None:
     st.title("🔒 Acesso ao Sistema de Ativos TI")
     st.subheader("Login")
-    email_login = st.text_input("E-mail", key="login_email")
+    
+    usuario_input = st.text_input("Usuário (ex: matheus.henrique) ou E-mail completo", key="login_email")
     senha_login = st.text_input("Senha", type="password", key="login_senha")
     
     if st.button("Entrar", type="primary", key="btn_entrar"):
-        if email_login and senha_login:
+        if usuario_input and senha_login:
+            email_final = tratar_usuario_ou_email(usuario_input)
             try:
                 res = supabase.auth.sign_in_with_password({
-                    "email": email_login,
+                    "email": email_final,
                     "password": senha_login
                 })
                 st.session_state.user = res.user
                 st.success("Login efetuado com sucesso!")
                 st.rerun()
             except Exception as e:
-                st.error(f"Erro ao fazer login: {e}")
+                st.error("Erro ao fazer login: Usuário ou senha incorretos.")
         else:
-            st.warning("Preencha o e-mail e a senha.")
+            st.warning("Preencha o usuário e a senha.")
 
     st.stop()
 
@@ -80,7 +100,8 @@ registrar_presenca(st.session_state.user.email)
 # ==========================================
 # 4. BARRA LATERAL (LOGOUT, ONLINE E CADASTRO)
 # ==========================================
-st.sidebar.write(f"👤 Usuário: **{st.session_state.user.email}**")
+nome_usuario_atual = formatar_nome_exibicao(st.session_state.user.email)
+st.sidebar.write(f"👤 Usuário: **{nome_usuario_atual}**")
 
 if st.sidebar.button("Sair (Logout)", key="btn_logout"):
     supabase.auth.sign_out()
@@ -92,28 +113,29 @@ st.sidebar.markdown("---")
 st.sidebar.subheader("🟢 Usuários Online (5 min)")
 usuarios_online = buscar_usuarios_online()
 for u in usuarios_online:
-    st.sidebar.markdown(f"🟢 **{u}**")
+    st.sidebar.markdown(f"🟢 **{formatar_nome_exibicao(u)}**")
 
 st.sidebar.markdown("---")
 
 with st.sidebar.expander("➕ Cadastrar Novo Usuário"):
     with st.form("form_novo_usuario", clear_on_submit=True):
-        novo_email = st.text_input("E-mail do novo usuário", key="cad_email")
+        novo_usuario_input = st.text_input("Nome de Usuário (ex: matheus.henrique)", key="cad_email")
         nova_senha = st.text_input("Senha inicial", type="password", key="cad_senha")
         btn_criar = st.form_submit_button("Criar Conta")
         
         if btn_criar:
-            if novo_email and nova_senha:
+            if novo_usuario_input and nova_senha:
+                email_cadastro = tratar_usuario_ou_email(novo_usuario_input)
                 try:
                     supabase.auth.sign_up({
-                        "email": novo_email,
+                        "email": email_cadastro,
                         "password": nova_senha
                     })
-                    st.success(f"Conta criada para {novo_email}!")
+                    st.success(f"Conta criada com sucesso para '{formatar_nome_exibicao(email_cadastro)}'!")
                 except Exception as e:
                     st.error(f"Erro ao cadastrar: {e}")
             else:
-                st.warning("Preencha e-mail e senha.")
+                st.warning("Preencha o nome de usuário e a senha.")
 
 # ==========================================
 # 5. LEITURA DE DADOS DO SUPABASE
@@ -177,11 +199,10 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "💬 Chat da Equipe TI"
 ])
 
-# --- TAB 1: ATIVOS BONS (MODO DUAL: TABELA OU FICHA DE EDIÇÃO) ---
+# --- TAB 1: ATIVOS BONS ---
 with tab1:
     st.subheader("🟢 Ativos Operacionais e em Estoque")
     
-    # Seleção do Modo de Visualização
     modo_vis = st.radio(
         "Modo de Visualização:", 
         ["📋 Tabela Completa (Apenas Leitura)", "📝 Fichas Individuais (Edição de Dados)"], 
@@ -203,14 +224,11 @@ with tab1:
         
         st.markdown("---")
         
-        # OPÇÃO 1: TABELA COMPLETA TRADICIONAL
         if "Tabela Completa" in modo_vis:
             st.dataframe(
                 df_b[["Tipo", "Serial", "Marca", "Modalidade", "Usuario", "CPF", "Setor_Operacao", "Termo", "Data", "Observacoes"]], 
                 use_container_width=True
             )
-            
-        # OPÇÃO 2: FICHAS INDIVIDUAIS PARA EDIÇÃO
         else:
             st.write(f"Exibindo **{len(df_b)}** equipamento(s). Abra o item para alterar os dados:")
 
@@ -443,7 +461,7 @@ with tab5:
             st.info("Nenhuma mensagem registrada. Envie a primeira mensagem!")
         else:
             for msg in mensagens:
-                autor = msg.get("user_email", "Anônimo")
+                autor = formatar_nome_exibicao(msg.get("user_email", "Anônimo"))
                 texto = msg.get("message", "")
                 data_envio = msg.get("created_at", "")[:16].replace("T", " ")
                 st.markdown(f"**`{autor}`** _({data_envio})_:\n> {texto}")
