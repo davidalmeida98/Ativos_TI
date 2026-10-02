@@ -5,6 +5,23 @@ from supabase import create_client, Client
 
 st.set_page_config(page_title="Gestão de Ativos TI - Cloud", layout="wide")
 
+# ==========================================
+# REMOVER WIDGETS/ÍCONES DE STATUS E STREAMLIT
+# ==========================================
+ocultar_elementos_css = """
+    <style>
+    /* Oculta ícone de status/execução do Streamlit (botão Stop/Running) */
+    [data-testid="stStatusWidget"] {
+        display: none !important;
+        visibility: hidden !important;
+    }
+    /* Oculta o menu de rodape do Streamlit */
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    </style>
+"""
+st.markdown(ocultar_elementos_css, unsafe_allow_html=True)
+
 # Domínio padrão para permitir logins simples sem digitar @email.com
 DOMINIO_PADRAO = "@sistema.local"
 
@@ -191,12 +208,11 @@ c4.metric("📦 Coletados", coletados)
 
 st.markdown("---")
 
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
+tab1, tab2, tab3, tab4 = st.tabs([
     "🟢 Ativos Bons (Home Office / Depósito TI)", 
     "🔴 Ativos Ruins & Coleta em Massa", 
     "➕ Cadastrar Equipamentos", 
-    "📊 Exportar Relatórios",
-    "💬 Chat da Equipe TI"
+    "📊 Exportar Relatórios"
 ])
 
 # --- TAB 1: ATIVOS BONS ---
@@ -441,41 +457,3 @@ with tab4:
     if not df_ruins.empty:
         csv_r = df_ruins.to_csv(index=False, sep=";").encode("utf-8-sig")
         col_d2.download_button("📥 Baixar Ativos RUINS (CSV)", csv_r, "ativos_ruins.csv", "text/csv")
-
-# --- TAB 5: CHAT INTERNO DA EQUIPE ---
-with tab5:
-    st.subheader("💬 Chat Interno da Equipe TI")
-    
-    if st.button("🔄 Atualizar Mensagens", key="btn_refresh_chat"):
-        st.rerun()
-
-    try:
-        chat_res = supabase.table("chat_messages").select("*").order("created_at", desc=False).limit(50).execute()
-        mensagens = chat_res.data
-    except Exception:
-        mensagens = []
-
-    chat_container = st.container(height=350)
-    with chat_container:
-        if not mensagens:
-            st.info("Nenhuma mensagem registrada. Envie a primeira mensagem!")
-        else:
-            for msg in mensagens:
-                autor = formatar_nome_exibicao(msg.get("user_email", "Anônimo"))
-                texto = msg.get("message", "")
-                data_envio = msg.get("created_at", "")[:16].replace("T", " ")
-                st.markdown(f"**`{autor}`** _({data_envio})_:\n> {texto}")
-
-    with st.form("form_chat", clear_on_submit=True):
-        nova_msg = st.text_input("Escreva sua mensagem:")
-        enviar_msg = st.form_submit_button("Enviar Mensagem")
-        
-        if enviar_msg and nova_msg.strip():
-            try:
-                supabase.table("chat_messages").insert({
-                    "user_email": st.session_state.user.email,
-                    "message": nova_msg.strip()
-                }).execute()
-                st.rerun()
-            except Exception as e:
-                st.error(f"Erro ao enviar mensagem: {e}")
