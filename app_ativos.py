@@ -5,9 +5,7 @@ from supabase import create_client, Client
 
 st.set_page_config(page_title="Gestão de Ativos TI - Cloud", layout="wide")
 
-# ==========================================
-# REGRAS 18 e 19: OCULTAR HEADERS E MENUS DO STREAMLIT
-# ==========================================
+# Oculta menus e cabeçalhos do Streamlit
 st.markdown("""
     <style>
     #MainMenu {visibility: hidden;}
@@ -18,11 +16,7 @@ st.markdown("""
 
 DOMINIO_PADRAO = "@sistema.local"
 
-# ==========================================
-# REGRA 14: FUNÇÃO DE VALIDAÇÃO/SANITIZAÇÃO DE INPUTS
-# ==========================================
 def sanitizar_texto(texto: str) -> str:
-    """Remove espaços desnecessários e trata textos para evitar falhas de entrada."""
     if not texto:
         return ""
     return str(texto).strip()
@@ -35,17 +29,13 @@ def tratar_usuario_ou_email(entrada: str) -> str:
         return f"{entrada}{DOMINIO_PADRAO}"
     return entrada
 
-# ==========================================
-# REGRA 15: PREVENIR VAZAMENTO DE DADOS EXPOSTOS NA TELA
-# ==========================================
 def formatar_nome_exibicao(email: str) -> str:
-    """Esconde domínios internos e exibe apenas o nome do usuário limpo."""
     if email and email.endswith(DOMINIO_PADRAO):
         return email.replace(DOMINIO_PADRAO, "")
     return email
 
 # ==========================================
-# 1. CONFIGURAÇÃO DO SUPABASE (VIA SECRETS)
+# 1. CONFIGURAÇÃO DO SUPABASE
 # ==========================================
 SUPABASE_URL = st.secrets.get("SUPABASE_URL", "https://iipvcbqyrwmwjbizavlw.supabase.co")
 SUPABASE_KEY = st.secrets.get("SUPABASE_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlpcHZjYnF5cndtd2piaXphdmx3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA4NzQ4OTQsImV4cCI6MjEwNjQ1MDg5NH0.yXtk30yQrmzwFFbMBFgoTt2-S7qnhzoyEWlWs9qywp4")
@@ -56,19 +46,17 @@ def init_supabase() -> Client:
 
 supabase = init_supabase()
 
-# Persistência de Sessão
-if "user" not in st.session_state or st.session_state.user is None:
-    try:
-        session = supabase.auth.get_session()
-        st.session_state.user = session.user if session else None
-    except Exception:
-        st.session_state.user = None
+# Controle estrito de sessão por navegador (Isolado por usuário)
+if "user_authenticated" not in st.session_state:
+    st.session_state.user_authenticated = False
+if "user_email" not in st.session_state:
+    st.session_state.user_email = None
 
 # ==========================================
-# REGRAS 6 e 7: AUTH SERVER SIDE & RESTRINGIR ACESSOS
+# 2. TELA DE LOGIN OBRIGATÓRIA (ISOLADA)
 # ==========================================
-if st.session_state.user is None:
-    st.title("🔒 Acesso Ao Sistema de Ativos TI")
+if not st.session_state.user_authenticated:
+    st.title("🔒 Acesso ao Sistema de Ativos TI")
     st.subheader("Login Obrigatório")
     
     usuario_input = st.text_input("Usuário ou E-mail", key="login_email")
@@ -82,43 +70,21 @@ if st.session_state.user is None:
                     "email": email_final,
                     "password": senha_login
                 })
-                st.session_state.user = res.user
-                st.success("Login efetuado com sucesso!")
-                st.rerun()
-            except Exception as e:
+                if res.user:
+                    st.session_state.user_authenticated = True
+                    st.session_state.user_email = res.user.email
+                    st.success("Login efetuado com sucesso!")
+                    st.rerun()
+            except Exception:
                 st.error("Erro ao fazer login: Usuário ou senha incorretos.")
         else:
             st.warning("Preencha o usuário e a senha.")
 
-    # PARADA OBRIGATÓRIA (Sede Server-Side): Bloqueia o carregamento de dados sem login!
     st.stop()
 
 # ==========================================
-# 3. ROTINAS E LEITURA DE DADOS (EXECUTADAS APÓS LOGIN)
+# 3. LEITURA DE DADOS
 # ==========================================
-def registrar_presenca(email: str):
-    try:
-        data_atual = datetime.utcnow().isoformat()
-        supabase.table("user_presence").upsert({"email": email, "last_seen": data_atual}).execute()
-    except Exception:
-        pass
-
-def buscar_usuarios_online():
-    try:
-        res = supabase.table("user_presence").select("*").execute()
-        df_presence = pd.DataFrame(res.data)
-        if df_presence.empty:
-            return []
-        
-        df_presence['last_seen'] = pd.to_datetime(df_presence['last_seen'], utc=True)
-        limite = pd.Timestamp.now(tz='UTC') - pd.Timedelta(minutes=5)
-        online_df = df_presence[df_presence['last_seen'] >= limite]
-        return online_df['email'].tolist()
-    except Exception:
-        return [st.session_state.user.email]
-
-registrar_presenca(st.session_state.user.email)
-
 def carregar_bons():
     try:
         response = supabase.table("ativos_bons").select("*").execute()
@@ -153,22 +119,19 @@ def carregar_ruins():
         return pd.DataFrame(columns=["Tipo", "Serial", "Marca", "Nova_Leva", "Status", "Status_Coleta", "Numero_Chamado", "Defeito_Descricao", "Usuario_Anterior", "Setor_Anterior", "Data_Registro", "Data_Coleta"])
 
 # ==========================================
-# 4. BARRA LATERAL (LOGOUT, ONLINE E CADASTRO)
+# 4. BARRA LATERAL (CADASTRO SEM TROCAR SESSÃO)
 # ==========================================
-nome_usuario_atual = formatar_nome_exibicao(st.session_state.user.email)
-st.sidebar.write(f"👤 Usuário: **{nome_usuario_atual}**")
+nome_usuario_atual = formatar_nome_exibicao(st.session_state.user_email)
+st.sidebar.write(f"👤 Usuário Conectado: **{nome_usuario_atual}**")
 
 if st.sidebar.button("Sair (Logout)", key="btn_logout"):
-    supabase.auth.sign_out()
-    st.session_state.user = None
+    st.session_state.user_authenticated = False
+    st.session_state.user_email = None
+    try:
+        supabase.auth.sign_out()
+    except Exception:
+        pass
     st.rerun()
-
-st.sidebar.markdown("---")
-
-st.sidebar.subheader("🟢 Usuários Online (5 min)")
-usuarios_online = buscar_usuarios_online()
-for u in usuarios_online:
-    st.sidebar.markdown(f"🟢 **{formatar_nome_exibicao(u)}**")
 
 st.sidebar.markdown("---")
 
@@ -182,18 +145,20 @@ with st.sidebar.expander("➕ Cadastrar Novo Usuário"):
             if novo_usuario_input and nova_senha:
                 email_cadastro = tratar_usuario_ou_email(novo_usuario_input)
                 try:
-                    supabase.auth.sign_up({
+                    # Cliente Supabase independente para não deslogar nem alterar o usuário atual
+                    auth_client = create_client(SUPABASE_URL, SUPABASE_KEY)
+                    auth_client.auth.sign_up({
                         "email": email_cadastro,
                         "password": nova_senha
                     })
-                    st.success(f"Conta criada para '{formatar_nome_exibicao(email_cadastro)}'!")
+                    st.success(f"Conta criada com sucesso para '{formatar_nome_exibicao(email_cadastro)}'!")
                 except Exception as e:
                     st.error(f"Erro ao cadastrar: {e}")
             else:
                 st.warning("Preencha o nome de usuário e a senha.")
 
 # ==========================================
-# 5. INTERFACE PRINCIPAL DO PAINEL
+# 5. INTERFACE PRINCIPAL
 # ==========================================
 st.title("🖥️ Gestão de Ativos TI (Nuvem)")
 
@@ -295,9 +260,6 @@ with tab1:
                     if st.button("💾 Salvar Alterações", key=f"btn_save_bom_{serial}"):
                         novo_status = "ENTREGUE" if nova_modalidade == "Home Office" else "ESTOQUE"
                         
-                        # ==========================================
-                        # REGRAS 8 e 14: BLOQUEIO DE MASS ASSIGNMENT & INPUT SANITIZATION
-                        # ==========================================
                         payload_update = {
                             "usuario": sanitizar_texto(novo_usuario),
                             "cpf": sanitizar_texto(novo_cpf),
