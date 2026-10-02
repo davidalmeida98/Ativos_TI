@@ -1,13 +1,11 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime, timedelta
+from datetime import datetime
 from supabase import create_client, Client
 
 st.set_page_config(page_title="Gestão de Ativos TI - Cloud", layout="wide")
 
-# ==========================================
-# OCULTAR MENU E RODAPÉ (SEM GERAR ERROS)
-# ==========================================
+# Oculta menus padrão do Streamlit
 st.markdown("""
     <style>
     #MainMenu {visibility: hidden;}
@@ -19,7 +17,6 @@ st.markdown("""
 DOMINIO_PADRAO = "@sistema.local"
 
 def tratar_usuario_ou_email(entrada: str) -> str:
-    """Anexa o domínio padrão caso o usuário não digite '@'."""
     entrada = entrada.strip().lower()
     if not entrada:
         return ""
@@ -28,13 +25,12 @@ def tratar_usuario_ou_email(entrada: str) -> str:
     return entrada
 
 def formatar_nome_exibicao(email: str) -> str:
-    """Remove o domínio padrão para exibir apenas o nome de usuário."""
     if email and email.endswith(DOMINIO_PADRAO):
         return email.replace(DOMINIO_PADRAO, "")
     return email
 
 # ==========================================
-# 1. CONFIGURAÇÃO DO SUPABASE (VIA SECRETS)
+# 1. CONFIGURAÇÃO DO SUPABASE
 # ==========================================
 SUPABASE_URL = st.secrets.get("SUPABASE_URL", "https://iipvcbqyrwmwjbizavlw.supabase.co")
 SUPABASE_KEY = st.secrets.get("SUPABASE_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlpcHZjYnF5cndtd2piaXphdmx3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA4NzQ4OTQsImV4cCI6MjEwNjQ1MDg5NH0.yXtk30yQrmzwFFbMBFgoTt2-S7qnhzoyEWlWs9qywp4")
@@ -54,11 +50,11 @@ if "user" not in st.session_state or st.session_state.user is None:
         st.session_state.user = None
 
 # ==========================================
-# 2. TELA DE LOGIN (SUPORTA USERNAME SIMPLES)
+# 2. BLOQUEIO DE TELA DE LOGIN (SEM ACESSO A DADOS)
 # ==========================================
 if st.session_state.user is None:
     st.title("🔒 Acesso ao Sistema de Ativos TI")
-    st.subheader("Login")
+    st.subheader("Login Obrigatório")
     
     usuario_input = st.text_input("Usuário ou E-mail", key="login_email")
     senha_login = st.text_input("Senha", type="password", key="login_senha")
@@ -79,10 +75,11 @@ if st.session_state.user is None:
         else:
             st.warning("Preencha o usuário e a senha.")
 
+    # PARADA OBRIGATÓRIA: Impede que o restante do código seja lido sem login
     st.stop()
 
 # ==========================================
-# 3. ATUALIZAÇÃO DE PRESENÇA (ONLINE)
+# 3. ROTINAS DE PRESENÇA E LEITURA DE DADOS (EXECUTADAS APENAS APÓS LOGIN)
 # ==========================================
 def registrar_presenca(email: str):
     try:
@@ -106,6 +103,37 @@ def buscar_usuarios_online():
         return [st.session_state.user.email]
 
 registrar_presenca(st.session_state.user.email)
+
+def carregar_bons():
+    try:
+        response = supabase.table("ativos_bons").select("*").execute()
+        df = pd.DataFrame(response.data)
+        if df.empty:
+            return pd.DataFrame(columns=["Tipo", "Serial", "Marca", "Status", "Modalidade", "Usuario", "CPF", "Setor_Operacao", "Termo", "Data", "Observacoes"])
+        df.rename(columns={
+            "tipo": "Tipo", "serial": "Serial", "marca": "Marca", "status": "Status",
+            "modalidade": "Modalidade", "usuario": "Usuario", "cpf": "CPF",
+            "setor_operacao": "Setor_Operacao", "termo": "Termo", "data": "Data", "observacoes": "Observacoes"
+        }, inplace=True)
+        return df
+    except Exception:
+        return pd.DataFrame(columns=["Tipo", "Serial", "Marca", "Status", "Modalidade", "Usuario", "CPF", "Setor_Operacao", "Termo", "Data", "Observacoes"])
+
+def carregar_ruins():
+    try:
+        response = supabase.table("ativos_ruins").select("*").execute()
+        df = pd.DataFrame(response.data)
+        if df.empty:
+            return pd.DataFrame(columns=["Tipo", "Serial", "Marca", "Nova_Leva", "Status", "Status_Coleta", "Numero_Chamado", "Defeito_Descricao", "Usuario_Anterior", "Setor_Anterior", "Data_Registro", "Data_Coleta"])
+        df.rename(columns={
+            "tipo": "Tipo", "serial": "Serial", "marca": "Marca", "nova_leva": "Nova_Leva",
+            "status": "Status", "status_coleta": "Status_Coleta", "numero_chamado": "Numero_Chamado",
+            "defeito_descricao": "Defeito_Descricao", "usuario_anterior": "Usuario_Anterior",
+            "setor_anterior": "Setor_Anterior", "data_registro": "Data_Registro", "data_coleta": "Data_Coleta"
+        }, inplace=True)
+        return df
+    except Exception:
+        return pd.DataFrame(columns=["Tipo", "Serial", "Marca", "Nova_Leva", "Status", "Status_Coleta", "Numero_Chamado", "Defeito_Descricao", "Usuario_Anterior", "Setor_Anterior", "Data_Registro", "Data_Coleta"])
 
 # ==========================================
 # 4. BARRA LATERAL (LOGOUT, ONLINE E CADASTRO)
@@ -148,41 +176,7 @@ with st.sidebar.expander("➕ Cadastrar Novo Usuário"):
                 st.warning("Preencha o nome de usuário e a senha.")
 
 # ==========================================
-# 5. LEITURA DE DADOS DO SUPABASE
-# ==========================================
-def carregar_bons():
-    try:
-        response = supabase.table("ativos_bons").select("*").execute()
-        df = pd.DataFrame(response.data)
-        if df.empty:
-            return pd.DataFrame(columns=["Tipo", "Serial", "Marca", "Status", "Modalidade", "Usuario", "CPF", "Setor_Operacao", "Termo", "Data", "Observacoes"])
-        df.rename(columns={
-            "tipo": "Tipo", "serial": "Serial", "marca": "Marca", "status": "Status",
-            "modalidade": "Modalidade", "usuario": "Usuario", "cpf": "CPF",
-            "setor_operacao": "Setor_Operacao", "termo": "Termo", "data": "Data", "observacoes": "Observacoes"
-        }, inplace=True)
-        return df
-    except Exception:
-        return pd.DataFrame(columns=["Tipo", "Serial", "Marca", "Status", "Modalidade", "Usuario", "CPF", "Setor_Operacao", "Termo", "Data", "Observacoes"])
-
-def carregar_ruins():
-    try:
-        response = supabase.table("ativos_ruins").select("*").execute()
-        df = pd.DataFrame(response.data)
-        if df.empty:
-            return pd.DataFrame(columns=["Tipo", "Serial", "Marca", "Nova_Leva", "Status", "Status_Coleta", "Numero_Chamado", "Defeito_Descricao", "Usuario_Anterior", "Setor_Anterior", "Data_Registro", "Data_Coleta"])
-        df.rename(columns={
-            "tipo": "Tipo", "serial": "Serial", "marca": "Marca", "nova_leva": "Nova_Leva",
-            "status": "Status", "status_coleta": "Status_Coleta", "numero_chamado": "Numero_Chamado",
-            "defeito_descricao": "Defeito_Descricao", "usuario_anterior": "Usuario_Anterior",
-            "setor_anterior": "Setor_Anterior", "data_registro": "Data_Registro", "data_coleta": "Data_Coleta"
-        }, inplace=True)
-        return df
-    except Exception:
-        return pd.DataFrame(columns=["Tipo", "Serial", "Marca", "Nova_Leva", "Status", "Status_Coleta", "Numero_Chamado", "Defeito_Descricao", "Usuario_Anterior", "Setor_Anterior", "Data_Registro", "Data_Coleta"])
-
-# ==========================================
-# 6. INTERFACE PRINCIPAL
+# 5. INTERFACE PRINCIPAL DO PAINEL
 # ==========================================
 st.title("🖥️ Gestão de Ativos TI (Nuvem)")
 
