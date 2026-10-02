@@ -8,7 +8,6 @@ st.set_page_config(page_title="Gestão de Ativos TI - Cloud", layout="wide")
 # ==========================================
 # 1. CONFIGURAÇÃO DO SUPABASE (VIA SECRETS)
 # ==========================================
-# Lê com segurança dos Secrets do Streamlit Cloud
 SUPABASE_URL = st.secrets.get("SUPABASE_URL", "https://iipvcbqyrwmwjbizavlw.supabase.co")
 SUPABASE_KEY = st.secrets.get("SUPABASE_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlpcHZjYnF5cndtd2piaXphdmx3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA4NzQ4OTQsImV4cCI6MjEwNjQ1MDg5NH0.yXtk30yQrmzwFFbMBFgoTt2-S7qnhzoyEWlWs9qywp4")
 
@@ -50,7 +49,7 @@ if st.session_state.user is None:
         else:
             st.warning("Preencha o e-mail e a senha.")
 
-    st.stop()  # Impede visualização do aplicativo sem login
+    st.stop()
 
 # ==========================================
 # 3. ATUALIZAÇÃO DE PRESENÇA (ONLINE)
@@ -90,7 +89,6 @@ if st.sidebar.button("Sair (Logout)", key="btn_logout"):
 
 st.sidebar.markdown("---")
 
-# Usuários On-line
 st.sidebar.subheader("🟢 Usuários Online (5 min)")
 usuarios_online = buscar_usuarios_online()
 for u in usuarios_online:
@@ -98,7 +96,6 @@ for u in usuarios_online:
 
 st.sidebar.markdown("---")
 
-# Área Restrita de Cadastro Privado
 with st.sidebar.expander("➕ Cadastrar Novo Usuário"):
     with st.form("form_novo_usuario", clear_on_submit=True):
         novo_email = st.text_input("E-mail do novo usuário", key="cad_email")
@@ -173,16 +170,24 @@ c4.metric("📦 Coletados", coletados)
 st.markdown("---")
 
 tab1, tab2, tab3, tab4, tab5 = st.tabs([
-    "🟢 Ativos Bons (Edição & Consulta)", 
+    "🟢 Ativos Bons (Home Office / Depósito TI)", 
     "🔴 Ativos Ruins & Coleta em Massa", 
     "➕ Cadastrar Equipamentos", 
     "📊 Exportar Relatórios",
     "💬 Chat da Equipe TI"
 ])
 
-# --- TAB 1: ATIVOS BONS (EDIÇÃO & CONSULTA) ---
+# --- TAB 1: ATIVOS BONS (MODO DUAL: TABELA OU FICHA DE EDIÇÃO) ---
 with tab1:
     st.subheader("🟢 Ativos Operacionais e em Estoque")
+    
+    # Seleção do Modo de Visualização
+    modo_vis = st.radio(
+        "Modo de Visualização:", 
+        ["📋 Tabela Completa (Apenas Leitura)", "📝 Fichas Individuais (Edição de Dados)"], 
+        horizontal=True,
+        key="modo_vis_bons"
+    )
     
     col_b1, col_b2 = st.columns(2)
     busca_bom = col_b1.text_input("Buscar por Nº de Série, Usuário ou Setor:", key="busca_bom").strip()
@@ -197,69 +202,78 @@ with tab1:
             df_b = df_b[mask]
         
         st.markdown("---")
-        st.write(f"Exibindo **{len(df_b)}** equipamento(s). Abra o item para ver ou editar detalhes:")
-
-        for idx, row in df_b.iterrows():
-            serial = row.get("Serial", "N/A")
-            tipo_eq = row.get("Tipo", "Notebook")
-            marca = row.get("Marca", "N/A")
-            usuario = row.get("Usuario", "")
-            modalidade = row.get("Modalidade", "Home Office")
-            cpf = row.get("CPF", "")
-            setor = row.get("Setor_Operacao", "")
-            termo = row.get("Termo", "N/A")
-            obs = row.get("Observacoes", "")
-
-            # Trata valores nulos/None
-            usuario_str = str(usuario) if pd.notna(usuario) and usuario != "None" else ""
-            cpf_str = str(cpf) if pd.notna(cpf) and cpf != "None" else ""
-            setor_str = str(setor) if pd.notna(setor) and setor != "None" else ""
-            obs_str = str(obs) if pd.notna(obs) and obs != "None" else ""
-
-            titulo_expander = f"🟢 [{tipo_eq}] Série: {serial} | Usuário: {usuario_str if usuario_str else 'NÃO ATRIBUÍDO'} | Setor: {setor_str if setor_str else 'N/A'}"
+        
+        # OPÇÃO 1: TABELA COMPLETA TRADICIONAL
+        if "Tabela Completa" in modo_vis:
+            st.dataframe(
+                df_b[["Tipo", "Serial", "Marca", "Modalidade", "Usuario", "CPF", "Setor_Operacao", "Termo", "Data", "Observacoes"]], 
+                use_container_width=True
+            )
             
-            with st.expander(titulo_expander):
-                c_left, c_right = st.columns(2)
+        # OPÇÃO 2: FICHAS INDIVIDUAIS PARA EDIÇÃO
+        else:
+            st.write(f"Exibindo **{len(df_b)}** equipamento(s). Abra o item para alterar os dados:")
+
+            for idx, row in df_b.iterrows():
+                serial = row.get("Serial", "N/A")
+                tipo_eq = row.get("Tipo", "Notebook")
+                marca = row.get("Marca", "N/A")
+                usuario = row.get("Usuario", "")
+                modalidade = row.get("Modalidade", "Home Office")
+                cpf = row.get("CPF", "")
+                setor = row.get("Setor_Operacao", "")
+                termo = row.get("Termo", "N/A")
+                obs = row.get("Observacoes", "")
+
+                usuario_str = str(usuario) if pd.notna(usuario) and usuario != "None" else ""
+                cpf_str = str(cpf) if pd.notna(cpf) and cpf != "None" else ""
+                setor_str = str(setor) if pd.notna(setor) and setor != "None" else ""
+                obs_str = str(obs) if pd.notna(obs) and obs != "None" else ""
+
+                titulo_expander = f"🟢 [{tipo_eq}] Série: {serial} | Usuário: {usuario_str if usuario_str else 'NÃO ATRIBUÍDO'} | Setor: {setor_str if setor_str else 'N/A'}"
                 
-                with c_left:
-                    st.write(f"**Tipo:** {tipo_eq}")
-                    st.write(f"**Nº de Série:** {serial}")
-                    st.write(f"**Marca:** {marca}")
+                with st.expander(titulo_expander):
+                    c_left, c_right = st.columns(2)
                     
-                    opcoes_mod = ["Home Office", "Depósito TI (Reserva)"]
-                    idx_mod = opcoes_mod.index(modalidade) if modalidade in opcoes_mod else 0
-                    nova_modalidade = st.selectbox("Localização / Modalidade:", opcoes_mod, index=idx_mod, key=f"mod_{serial}")
+                    with c_left:
+                        st.write(f"**Tipo:** {tipo_eq}")
+                        st.write(f"**Nº de Série:** {serial}")
+                        st.write(f"**Marca:** {marca}")
+                        
+                        opcoes_mod = ["Home Office", "Depósito TI (Reserva)"]
+                        idx_mod = opcoes_mod.index(modalidade) if modalidade in opcoes_mod else 0
+                        nova_modalidade = st.selectbox("Localização / Modalidade:", opcoes_mod, index=idx_mod, key=f"mod_{serial}")
 
-                with c_right:
-                    novo_usuario = st.text_input("Nome do Usuário (Editar):", value=usuario_str, key=f"usr_{serial}")
-                    novo_cpf = st.text_input("CPF:", value=cpf_str, key=f"cpf_{serial}")
-                    novo_setor = st.text_input("Setor / Operação:", value=setor_str, key=f"set_{serial}")
-                    
-                    opcoes_termo = ["ASSINADO", "PENDENTE", "N/A"]
-                    idx_termo = opcoes_termo.index(termo) if termo in opcoes_termo else 2
-                    novo_termo = st.selectbox("Status do Termo:", opcoes_termo, index=idx_termo, key=f"trm_{serial}")
-                    
-                    nova_obs = st.text_input("Observações:", value=obs_str, key=f"obs_{serial}")
+                    with c_right:
+                        novo_usuario = st.text_input("Nome do Usuário (Editar):", value=usuario_str, key=f"usr_{serial}")
+                        novo_cpf = st.text_input("CPF:", value=cpf_str, key=f"cpf_{serial}")
+                        novo_setor = st.text_input("Setor / Operação:", value=setor_str, key=f"set_{serial}")
+                        
+                        opcoes_termo = ["ASSINADO", "PENDENTE", "N/A"]
+                        idx_termo = opcoes_termo.index(termo) if termo in opcoes_termo else 2
+                        novo_termo = st.selectbox("Status do Termo:", opcoes_termo, index=idx_termo, key=f"trm_{serial}")
+                        
+                        nova_obs = st.text_input("Observações:", value=obs_str, key=f"obs_{serial}")
 
-                if st.button("💾 Salvar Alterações", key=f"btn_save_bom_{serial}"):
-                    novo_status = "ENTREGUE" if nova_modalidade == "Home Office" else "ESTOQUE"
-                    
-                    payload_update = {
-                        "usuario": novo_usuario.strip(),
-                        "cpf": novo_cpf.strip(),
-                        "setor_operacao": novo_setor.strip(),
-                        "modalidade": nova_modalidade,
-                        "status": novo_status,
-                        "termo": novo_termo,
-                        "observacoes": nova_obs.strip()
-                    }
-                    
-                    try:
-                        supabase.table("ativos_bons").update(payload_update).eq("serial", serial).execute()
-                        st.success(f"Ativo {serial} atualizado com sucesso!")
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Erro ao atualizar no banco: {e}")
+                    if st.button("💾 Salvar Alterações", key=f"btn_save_bom_{serial}"):
+                        novo_status = "ENTREGUE" if nova_modalidade == "Home Office" else "ESTOQUE"
+                        
+                        payload_update = {
+                            "usuario": novo_usuario.strip(),
+                            "cpf": novo_cpf.strip(),
+                            "setor_operacao": novo_setor.strip(),
+                            "modalidade": nova_modalidade,
+                            "status": novo_status,
+                            "termo": novo_termo,
+                            "observacoes": nova_obs.strip()
+                        }
+                        
+                        try:
+                            supabase.table("ativos_bons").update(payload_update).eq("serial", serial).execute()
+                            st.success(f"Ativo {serial} atualizado com sucesso!")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Erro ao atualizar no banco: {e}")
 
     else:
         st.info("Nenhum ativo bom cadastrado até o momento.")
