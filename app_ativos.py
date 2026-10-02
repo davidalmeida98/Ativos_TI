@@ -1,15 +1,16 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 from supabase import create_client, Client
 
 st.set_page_config(page_title="Gestão de Ativos TI - Cloud", layout="wide")
 
 # ==========================================
-# 1. CONFIGURAÇÃO DO SUPABASE
+# 1. CONFIGURAÇÃO DO SUPABASE (VIA SECRETS)
 # ==========================================
-SUPABASE_URL = "https://iipvcbqyrwmwjbizavlw.supabase.co"
-SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlpcHZjYnF5cndtd2piaXphdmx3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA4NzQ4OTQsImV4cCI6MjEwNjQ1MDg5NH0.yXtk30yQrmzwFFbMBFgoTt2-S7qnhzoyEWlWs9qywp4"
+# Lê com segurança dos Secrets do Streamlit Cloud
+SUPABASE_URL = st.secrets.get("SUPABASE_URL", "https://iipvcbqyrwmwjbizavlw.supabase.co")
+SUPABASE_KEY = st.secrets.get("SUPABASE_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlpcHZjYnF5cndtd2piaXphdmx3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA4NzQ4OTQsImV4cCI6MjEwNjQ1MDg5NH0.yXtk30yQrmzwFFbMBFgoTt2-S7qnhzoyEWlWs9qywp4")
 
 @st.cache_resource
 def init_supabase() -> Client:
@@ -17,14 +18,11 @@ def init_supabase() -> Client:
 
 supabase = init_supabase()
 
-# Recupera a sessão salva no Supabase (caso já tenha feito login anteriormente)
+# Persistência de Login (Recupera sessão ativa)
 if "user" not in st.session_state or st.session_state.user is None:
     try:
         session = supabase.auth.get_session()
-        if session and session.user:
-            st.session_state.user = session.user
-        else:
-            st.session_state.user = None
+        st.session_state.user = session.user if session else None
     except Exception:
         st.session_state.user = None
 
@@ -33,7 +31,6 @@ if "user" not in st.session_state or st.session_state.user is None:
 # ==========================================
 if st.session_state.user is None:
     st.title("🔒 Acesso ao Sistema de Ativos TI")
-    
     st.subheader("Login")
     email_login = st.text_input("E-mail", key="login_email")
     senha_login = st.text_input("Senha", type="password", key="login_senha")
@@ -53,9 +50,36 @@ if st.session_state.user is None:
         else:
             st.warning("Preencha o e-mail e a senha.")
 
-    st.stop()  # Impede a visualização do painel se não estiver logado
+    st.stop()  # Impede visualização do aplicativo sem login
+
 # ==========================================
-# 3. BARRA LATERAL (LOGOUT E CADASTRO PRIVADO)
+# 3. ATUALIZAÇÃO DE PRESENÇA (ONLINE)
+# ==========================================
+def registrar_presenca(email: str):
+    try:
+        data_atual = datetime.utcnow().isoformat()
+        supabase.table("user_presence").upsert({"email": email, "last_seen": data_atual}).execute()
+    except Exception:
+        pass
+
+def buscar_usuarios_online():
+    try:
+        res = supabase.table("user_presence").select("*").execute()
+        df_presence = pd.DataFrame(res.data)
+        if df_presence.empty:
+            return []
+        
+        df_presence['last_seen'] = pd.to_datetime(df_presence['last_seen'], utc=True)
+        limite = pd.Timestamp.now(tz='UTC') - pd.Timedelta(minutes=5)
+        online_df = df_presence[df_presence['last_seen'] >= limite]
+        return online_df['email'].tolist()
+    except Exception:
+        return [st.session_state.user.email]
+
+registrar_presenca(st.session_state.user.email)
+
+# ==========================================
+# 4. BARRA LATERAL (LOGOUT, ONLINE E CADASTRO)
 # ==========================================
 st.sidebar.write(f"👤 Usuário: **{st.session_state.user.email}**")
 
@@ -66,26 +90,36 @@ if st.sidebar.button("Sair (Logout)", key="btn_logout"):
 
 st.sidebar.markdown("---")
 
-# Área Restrita na Barra Lateral para Cadastrar Novos Usuários
+# Usuários On-line
+st.sidebar.subheader("🟢 Usuários Online (5 min)")
+usuarios_online = buscar_usuarios_online()
+for u in usuarios_online:
+    st.sidebar.markdown(f"🟢 **{u}**")
+
+st.sidebar.markdown("---")
+
+# Área Restrita de Cadastro Privado
 with st.sidebar.expander("➕ Cadastrar Novo Usuário"):
-    novo_email = st.text_input("E-mail do novo usuário", key="cad_email")
-    nova_senha = st.text_input("Senha inicial", type="password", key="cad_senha")
-    
-    if st.button("Criar Conta", key="btn_criar_usuario"):
-        if novo_email and nova_senha:
-            try:
-                res = supabase.auth.sign_up({
-                    "email": novo_email,
-                    "password": nova_senha
-                })
-                st.success(f"Conta criada para {novo_email}!")
-            except Exception as e:
-                st.error(f"Erro ao cadastrar: {e}")
-        else:
-            st.warning("Preencha e-mail e senha.")
+    with st.form("form_novo_usuario", clear_on_submit=True):
+        novo_email = st.text_input("E-mail do novo usuário", key="cad_email")
+        nova_senha = st.text_input("Senha inicial", type="password", key="cad_senha")
+        btn_criar = st.form_submit_button("Criar Conta")
+        
+        if btn_criar:
+            if novo_email and nova_senha:
+                try:
+                    supabase.auth.sign_up({
+                        "email": novo_email,
+                        "password": nova_senha
+                    })
+                    st.success(f"Conta criada para {novo_email}!")
+                except Exception as e:
+                    st.error(f"Erro ao cadastrar: {e}")
+            else:
+                st.warning("Preencha e-mail e senha.")
 
 # ==========================================
-# 4. LEITURA DE DADOS DO SUPABASE
+# 5. LEITURA DE DADOS DO SUPABASE
 # ==========================================
 def carregar_bons():
     try:
@@ -119,7 +153,7 @@ def carregar_ruins():
         return pd.DataFrame(columns=["Tipo", "Serial", "Marca", "Nova_Leva", "Status", "Status_Coleta", "Numero_Chamado", "Defeito_Descricao", "Usuario_Anterior", "Setor_Anterior", "Data_Registro", "Data_Coleta"])
 
 # ==========================================
-# 5. INTERFACE PRINCIPAL
+# 6. INTERFACE PRINCIPAL
 # ==========================================
 st.title("🖥️ Gestão de Ativos TI (Nuvem)")
 
@@ -138,19 +172,21 @@ c4.metric("📦 Coletados", coletados)
 
 st.markdown("---")
 
-tab1, tab2, tab3, tab4 = st.tabs([
-    "🟢 Ativos Bons (Home Office / Depósito TI)", 
+tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    "🟢 Ativos Bons (Edição & Consulta)", 
     "🔴 Ativos Ruins & Coleta em Massa", 
     "➕ Cadastrar Equipamentos", 
-    "📊 Exportar Relatórios"
+    "📊 Exportar Relatórios",
+    "💬 Chat da Equipe TI"
 ])
 
-# TAB 1: ATIVOS BONS
+# --- TAB 1: ATIVOS BONS (EDIÇÃO & CONSULTA) ---
 with tab1:
     st.subheader("🟢 Ativos Operacionais e em Estoque")
+    
     col_b1, col_b2 = st.columns(2)
     busca_bom = col_b1.text_input("Buscar por Nº de Série, Usuário ou Setor:", key="busca_bom").strip()
-    filtro_tipo_bom = col_b2.selectbox("Filtrar Tipo:", ["Todos", "Notebook", "Desktop"])
+    filtro_tipo_bom = col_b2.selectbox("Filtrar Tipo:", ["Todos", "Notebook", "Desktop"], key="f_tp_b")
     
     df_b = df_bons.copy()
     if not df_b.empty:
@@ -159,11 +195,76 @@ with tab1:
         if busca_bom:
             mask = df_b.fillna("").astype(str).apply(lambda r: r.str.contains(busca_bom, case=False).any(), axis=1)
             df_b = df_b[mask]
-        st.dataframe(df_b[["Tipo", "Serial", "Marca", "Modalidade", "Usuario", "CPF", "Setor_Operacao", "Termo", "Data", "Observacoes"]], use_container_width=True)
+        
+        st.markdown("---")
+        st.write(f"Exibindo **{len(df_b)}** equipamento(s). Abra o item para ver ou editar detalhes:")
+
+        for idx, row in df_b.iterrows():
+            serial = row.get("Serial", "N/A")
+            tipo_eq = row.get("Tipo", "Notebook")
+            marca = row.get("Marca", "N/A")
+            usuario = row.get("Usuario", "")
+            modalidade = row.get("Modalidade", "Home Office")
+            cpf = row.get("CPF", "")
+            setor = row.get("Setor_Operacao", "")
+            termo = row.get("Termo", "N/A")
+            obs = row.get("Observacoes", "")
+
+            # Trata valores nulos/None
+            usuario_str = str(usuario) if pd.notna(usuario) and usuario != "None" else ""
+            cpf_str = str(cpf) if pd.notna(cpf) and cpf != "None" else ""
+            setor_str = str(setor) if pd.notna(setor) and setor != "None" else ""
+            obs_str = str(obs) if pd.notna(obs) and obs != "None" else ""
+
+            titulo_expander = f"🟢 [{tipo_eq}] Série: {serial} | Usuário: {usuario_str if usuario_str else 'NÃO ATRIBUÍDO'} | Setor: {setor_str if setor_str else 'N/A'}"
+            
+            with st.expander(titulo_expander):
+                c_left, c_right = st.columns(2)
+                
+                with c_left:
+                    st.write(f"**Tipo:** {tipo_eq}")
+                    st.write(f"**Nº de Série:** {serial}")
+                    st.write(f"**Marca:** {marca}")
+                    
+                    opcoes_mod = ["Home Office", "Depósito TI (Reserva)"]
+                    idx_mod = opcoes_mod.index(modalidade) if modalidade in opcoes_mod else 0
+                    nova_modalidade = st.selectbox("Localização / Modalidade:", opcoes_mod, index=idx_mod, key=f"mod_{serial}")
+
+                with c_right:
+                    novo_usuario = st.text_input("Nome do Usuário (Editar):", value=usuario_str, key=f"usr_{serial}")
+                    novo_cpf = st.text_input("CPF:", value=cpf_str, key=f"cpf_{serial}")
+                    novo_setor = st.text_input("Setor / Operação:", value=setor_str, key=f"set_{serial}")
+                    
+                    opcoes_termo = ["ASSINADO", "PENDENTE", "N/A"]
+                    idx_termo = opcoes_termo.index(termo) if termo in opcoes_termo else 2
+                    novo_termo = st.selectbox("Status do Termo:", opcoes_termo, index=idx_termo, key=f"trm_{serial}")
+                    
+                    nova_obs = st.text_input("Observações:", value=obs_str, key=f"obs_{serial}")
+
+                if st.button("💾 Salvar Alterações", key=f"btn_save_bom_{serial}"):
+                    novo_status = "ENTREGUE" if nova_modalidade == "Home Office" else "ESTOQUE"
+                    
+                    payload_update = {
+                        "usuario": novo_usuario.strip(),
+                        "cpf": novo_cpf.strip(),
+                        "setor_operacao": novo_setor.strip(),
+                        "modalidade": nova_modalidade,
+                        "status": novo_status,
+                        "termo": novo_termo,
+                        "observacoes": nova_obs.strip()
+                    }
+                    
+                    try:
+                        supabase.table("ativos_bons").update(payload_update).eq("serial", serial).execute()
+                        st.success(f"Ativo {serial} atualizado com sucesso!")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Erro ao atualizar no banco: {e}")
+
     else:
         st.info("Nenhum ativo bom cadastrado até o momento.")
 
-# TAB 2: ATIVOS RUINS & COLETA
+# --- TAB 2: ATIVOS RUINS & COLETA ---
 with tab2:
     st.subheader("🔴 Triagem de Defeitos e Atualização de Coleta em Massa")
     df_r = df_ruins.copy()
@@ -248,7 +349,7 @@ with tab2:
     else:
         st.info("Nenhum equipamento com defeito cadastrado.")
 
-# TAB 3: CADASTRO DE EQUIPAMENTOS
+# --- TAB 3: CADASTRO DE EQUIPAMENTOS ---
 with tab3:
     st.subheader("➕ Entrada de Equipamentos")
     tipo_registro = st.radio("Estado Inicial:", ["🟢 BOM / Operacional (Home Office ou Depósito TI)", "🔴 RUIM / Com Defeito"])
@@ -298,7 +399,7 @@ with tab3:
                 st.success("Equipamento salvo com sucesso!")
                 st.rerun()
 
-# TAB 4: EXPORTAÇÃO
+# --- TAB 4: EXPORTAÇÃO ---
 with tab4:
     st.subheader("📊 Exportar Relatórios")
     col_d1, col_d2 = st.columns(2)
@@ -308,3 +409,41 @@ with tab4:
     if not df_ruins.empty:
         csv_r = df_ruins.to_csv(index=False, sep=";").encode("utf-8-sig")
         col_d2.download_button("📥 Baixar Ativos RUINS (CSV)", csv_r, "ativos_ruins.csv", "text/csv")
+
+# --- TAB 5: CHAT INTERNO DA EQUIPE ---
+with tab5:
+    st.subheader("💬 Chat Interno da Equipe TI")
+    
+    if st.button("🔄 Atualizar Mensagens", key="btn_refresh_chat"):
+        st.rerun()
+
+    try:
+        chat_res = supabase.table("chat_messages").select("*").order("created_at", desc=False).limit(50).execute()
+        mensagens = chat_res.data
+    except Exception:
+        mensagens = []
+
+    chat_container = st.container(height=350)
+    with chat_container:
+        if not mensagens:
+            st.info("Nenhuma mensagem registrada. Envie a primeira mensagem!")
+        else:
+            for msg in mensagens:
+                autor = msg.get("user_email", "Anônimo")
+                texto = msg.get("message", "")
+                data_envio = msg.get("created_at", "")[:16].replace("T", " ")
+                st.markdown(f"**`{autor}`** _({data_envio})_:\n> {texto}")
+
+    with st.form("form_chat", clear_on_submit=True):
+        nova_msg = st.text_input("Escreva sua mensagem:")
+        enviar_msg = st.form_submit_button("Enviar Mensagem")
+        
+        if enviar_msg and nova_msg.strip():
+            try:
+                supabase.table("chat_messages").insert({
+                    "user_email": st.session_state.user.email,
+                    "message": nova_msg.strip()
+                }).execute()
+                st.rerun()
+            except Exception as e:
+                st.error(f"Erro ao enviar mensagem: {e}")
