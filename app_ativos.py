@@ -5,7 +5,9 @@ from supabase import create_client, Client
 
 st.set_page_config(page_title="Gestão de Ativos TI - Cloud", layout="wide")
 
-# Oculta menus padrão do Streamlit
+# ==========================================
+# REGRAS 18 e 19: OCULTAR HEADERS E MENUS DO STREAMLIT
+# ==========================================
 st.markdown("""
     <style>
     #MainMenu {visibility: hidden;}
@@ -16,21 +18,34 @@ st.markdown("""
 
 DOMINIO_PADRAO = "@sistema.local"
 
+# ==========================================
+# REGRA 14: FUNÇÃO DE VALIDAÇÃO/SANITIZAÇÃO DE INPUTS
+# ==========================================
+def sanitizar_texto(texto: str) -> str:
+    """Remove espaços desnecessários e trata textos para evitar falhas de entrada."""
+    if not texto:
+        return ""
+    return str(texto).strip()
+
 def tratar_usuario_ou_email(entrada: str) -> str:
-    entrada = entrada.strip().lower()
+    entrada = sanitizar_texto(entrada).lower()
     if not entrada:
         return ""
     if "@" not in entrada:
         return f"{entrada}{DOMINIO_PADRAO}"
     return entrada
 
+# ==========================================
+# REGRA 15: PREVENIR VAZAMENTO DE DADOS EXPOSTOS NA TELA
+# ==========================================
 def formatar_nome_exibicao(email: str) -> str:
+    """Esconde domínios internos e exibe apenas o nome do usuário limpo."""
     if email and email.endswith(DOMINIO_PADRAO):
         return email.replace(DOMINIO_PADRAO, "")
     return email
 
 # ==========================================
-# 1. CONFIGURAÇÃO DO SUPABASE
+# 1. CONFIGURAÇÃO DO SUPABASE (VIA SECRETS)
 # ==========================================
 SUPABASE_URL = st.secrets.get("SUPABASE_URL", "https://iipvcbqyrwmwjbizavlw.supabase.co")
 SUPABASE_KEY = st.secrets.get("SUPABASE_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlpcHZjYnF5cndtd2piaXphdmx3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA4NzQ4OTQsImV4cCI6MjEwNjQ1MDg5NH0.yXtk30yQrmzwFFbMBFgoTt2-S7qnhzoyEWlWs9qywp4")
@@ -50,10 +65,10 @@ if "user" not in st.session_state or st.session_state.user is None:
         st.session_state.user = None
 
 # ==========================================
-# 2. BLOQUEIO DE TELA DE LOGIN
+# REGRAS 6 e 7: AUTH SERVER SIDE & RESTRINGIR ACESSOS
 # ==========================================
 if st.session_state.user is None:
-    st.title("🔒 Acesso ao Sistema de Ativos TI")
+    st.title("🔒 Acesso Ao Sistema de Ativos TI")
     st.subheader("Login Obrigatório")
     
     usuario_input = st.text_input("Usuário ou E-mail", key="login_email")
@@ -71,15 +86,39 @@ if st.session_state.user is None:
                 st.success("Login efetuado com sucesso!")
                 st.rerun()
             except Exception as e:
-                st.error(f"Erro ao fazer login: {e}")
+                st.error("Erro ao fazer login: Usuário ou senha incorretos.")
         else:
             st.warning("Preencha o usuário e a senha.")
 
+    # PARADA OBRIGATÓRIA (Sede Server-Side): Bloqueia o carregamento de dados sem login!
     st.stop()
 
 # ==========================================
-# 3. LEITURA DE DADOS DO SUPABASE (COM EXIBIÇÃO DE ERRO)
+# 3. ROTINAS E LEITURA DE DADOS (EXECUTADAS APÓS LOGIN)
 # ==========================================
+def registrar_presenca(email: str):
+    try:
+        data_atual = datetime.utcnow().isoformat()
+        supabase.table("user_presence").upsert({"email": email, "last_seen": data_atual}).execute()
+    except Exception:
+        pass
+
+def buscar_usuarios_online():
+    try:
+        res = supabase.table("user_presence").select("*").execute()
+        df_presence = pd.DataFrame(res.data)
+        if df_presence.empty:
+            return []
+        
+        df_presence['last_seen'] = pd.to_datetime(df_presence['last_seen'], utc=True)
+        limite = pd.Timestamp.now(tz='UTC') - pd.Timedelta(minutes=5)
+        online_df = df_presence[df_presence['last_seen'] >= limite]
+        return online_df['email'].tolist()
+    except Exception:
+        return [st.session_state.user.email]
+
+registrar_presenca(st.session_state.user.email)
+
 def carregar_bons():
     try:
         response = supabase.table("ativos_bons").select("*").execute()
@@ -93,7 +132,7 @@ def carregar_bons():
         }, inplace=True)
         return df
     except Exception as e:
-        st.error(f"Erro ao ler ativos_bons do Supabase: {e}")
+        st.error(f"Erro ao carregar dados: {e}")
         return pd.DataFrame(columns=["Tipo", "Serial", "Marca", "Status", "Modalidade", "Usuario", "CPF", "Setor_Operacao", "Termo", "Data", "Observacoes"])
 
 def carregar_ruins():
@@ -110,11 +149,11 @@ def carregar_ruins():
         }, inplace=True)
         return df
     except Exception as e:
-        st.error(f"Erro ao ler ativos_ruins do Supabase: {e}")
+        st.error(f"Erro ao carregar dados: {e}")
         return pd.DataFrame(columns=["Tipo", "Serial", "Marca", "Nova_Leva", "Status", "Status_Coleta", "Numero_Chamado", "Defeito_Descricao", "Usuario_Anterior", "Setor_Anterior", "Data_Registro", "Data_Coleta"])
 
 # ==========================================
-# 4. BARRA LATERAL
+# 4. BARRA LATERAL (LOGOUT, ONLINE E CADASTRO)
 # ==========================================
 nome_usuario_atual = formatar_nome_exibicao(st.session_state.user.email)
 st.sidebar.write(f"👤 Usuário: **{nome_usuario_atual}**")
@@ -123,6 +162,13 @@ if st.sidebar.button("Sair (Logout)", key="btn_logout"):
     supabase.auth.sign_out()
     st.session_state.user = None
     st.rerun()
+
+st.sidebar.markdown("---")
+
+st.sidebar.subheader("🟢 Usuários Online (5 min)")
+usuarios_online = buscar_usuarios_online()
+for u in usuarios_online:
+    st.sidebar.markdown(f"🟢 **{formatar_nome_exibicao(u)}**")
 
 st.sidebar.markdown("---")
 
@@ -184,7 +230,7 @@ with tab1:
     )
     
     col_b1, col_b2 = st.columns(2)
-    busca_bom = col_b1.text_input("Buscar por Nº de Série, Usuário ou Setor:", key="busca_bom").strip()
+    busca_bom = sanitizar_texto(col_b1.text_input("Buscar por Nº de Série, Usuário ou Setor:", key="busca_bom"))
     filtro_tipo_bom = col_b2.selectbox("Filtrar Tipo:", ["Todos", "Notebook", "Desktop"], key="f_tp_b")
     
     df_b = df_bons.copy()
@@ -249,14 +295,17 @@ with tab1:
                     if st.button("💾 Salvar Alterações", key=f"btn_save_bom_{serial}"):
                         novo_status = "ENTREGUE" if nova_modalidade == "Home Office" else "ESTOQUE"
                         
+                        # ==========================================
+                        # REGRAS 8 e 14: BLOQUEIO DE MASS ASSIGNMENT & INPUT SANITIZATION
+                        # ==========================================
                         payload_update = {
-                            "usuario": novo_usuario.strip(),
-                            "cpf": novo_cpf.strip(),
-                            "setor_operacao": novo_setor.strip(),
+                            "usuario": sanitizar_texto(novo_usuario),
+                            "cpf": sanitizar_texto(novo_cpf),
+                            "setor_operacao": sanitizar_texto(novo_setor),
                             "modalidade": nova_modalidade,
                             "status": novo_status,
                             "termo": novo_termo,
-                            "observacoes": nova_obs.strip()
+                            "observacoes": sanitizar_texto(nova_obs)
                         }
                         
                         try:
@@ -276,7 +325,7 @@ with tab2:
     
     if not df_r.empty:
         col_f1, col_f2, col_f3 = st.columns(3)
-        busca_ruim = col_f1.text_input("Buscar por Nº de Série, Marca ou Chamado:", key="busca_ruim").strip()
+        busca_ruim = sanitizar_texto(col_f1.text_input("Buscar por Nº de Série, Marca ou Chamado:", key="busca_ruim"))
         filtro_tipo_ruim = col_f2.selectbox("Filtrar Tipo:", ["Todos", "Notebook", "Desktop"], key="f_tp_r")
         filtro_coleta = col_f3.selectbox("Status da Coleta:", ["Todos", "Aguardando Coleta", "Coletado pela Vivo", "Coletado pela Empresa Locadora"])
         
@@ -345,8 +394,8 @@ with tab2:
                 if st.button("Salvar Ficha", key=f"btn_r_{serial}"):
                     update_data = {
                         "status_coleta": novo_st_coleta,
-                        "numero_chamado": novo_chamado,
-                        "defeito_descricao": novo_defeito
+                        "numero_chamado": sanitizar_texto(novo_chamado),
+                        "defeito_descricao": sanitizar_texto(novo_defeito)
                     }
                     supabase.table("ativos_ruins").update(update_data).eq("serial", serial).execute()
                     st.success("Atualizado no banco!")
@@ -362,7 +411,7 @@ with tab3:
     with st.form("form_novo", clear_on_submit=True):
         c_f1, c_f2 = st.columns(2)
         tipo_eq_in = c_f1.selectbox("Tipo de Equipamento:", ["Notebook", "Desktop"])
-        serial_in = c_f2.text_input("Número de Série (Obrigatório):")
+        serial_in = sanitizar_texto(c_f2.text_input("Número de Série (Obrigatório):"))
         marca_in = st.selectbox("Marca:", ["Positivo", "HP", "Lenovo", "Dell", "VAIO", "Outra"])
         
         if "BOM" in tipo_registro:
@@ -381,23 +430,25 @@ with tab3:
         submeter = st.form_submit_button("Salvar no Banco Cloud")
         
         if submeter:
-            if not serial_in.strip():
+            if not serial_in:
                 st.error("Preencha o Número de Série!")
             else:
                 if "BOM" in tipo_registro:
                     payload = {
-                        "tipo": tipo_eq_in, "serial": serial_in.strip(), "marca": marca_in,
+                        "tipo": tipo_eq_in, "serial": serial_in, "marca": marca_in,
                         "status": "ENTREGUE" if modalidade_in == "Home Office" else "ESTOQUE",
-                        "modalidade": modalidade_in, "usuario": usuario_in, "cpf": cpf_in,
-                        "setor_operacao": setor_in, "termo": termo_in,
-                        "data": datetime.now().strftime("%Y-%m-%d"), "observacoes": obs_in
+                        "modalidade": modalidade_in, "usuario": sanitizar_texto(usuario_in), 
+                        "cpf": sanitizar_texto(cpf_in), "setor_operacao": sanitizar_texto(setor_in), 
+                        "termo": termo_in, "data": datetime.now().strftime("%Y-%m-%d"), 
+                        "observacoes": sanitizar_texto(obs_in)
                     }
                     supabase.table("ativos_bons").insert(payload).execute()
                 else:
                     payload = {
-                        "tipo": tipo_eq_in, "serial": serial_in.strip(), "marca": marca_in,
+                        "tipo": tipo_eq_in, "serial": serial_in, "marca": marca_in,
                         "nova_leva": nova_leva_in, "status": "DEFEITO", "status_coleta": st_coleta_in,
-                        "numero_chamado": chamado_in, "defeito_descricao": defeito_in,
+                        "numero_chamado": sanitizar_texto(chamado_in), 
+                        "defeito_descricao": sanitizar_texto(defeito_in),
                         "data_registro": datetime.now().strftime("%Y-%m-%d")
                     }
                     supabase.table("ativos_ruins").insert(payload).execute()
