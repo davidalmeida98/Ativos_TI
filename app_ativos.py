@@ -50,7 +50,7 @@ if "user" not in st.session_state or st.session_state.user is None:
         st.session_state.user = None
 
 # ==========================================
-# 2. BLOQUEIO DE TELA DE LOGIN (SEM ACESSO A DADOS)
+# 2. BLOQUEIO DE TELA DE LOGIN
 # ==========================================
 if st.session_state.user is None:
     st.title("🔒 Acesso ao Sistema de Ativos TI")
@@ -70,40 +70,16 @@ if st.session_state.user is None:
                 st.session_state.user = res.user
                 st.success("Login efetuado com sucesso!")
                 st.rerun()
-            except Exception:
-                st.error("Erro ao fazer login: Usuário ou senha incorretos.")
+            except Exception as e:
+                st.error(f"Erro ao fazer login: {e}")
         else:
             st.warning("Preencha o usuário e a senha.")
 
-    # PARADA OBRIGATÓRIA: Impede que o restante do código seja lido sem login
     st.stop()
 
 # ==========================================
-# 3. ROTINAS DE PRESENÇA E LEITURA DE DADOS (EXECUTADAS APENAS APÓS LOGIN)
+# 3. LEITURA DE DADOS DO SUPABASE (COM EXIBIÇÃO DE ERRO)
 # ==========================================
-def registrar_presenca(email: str):
-    try:
-        data_atual = datetime.utcnow().isoformat()
-        supabase.table("user_presence").upsert({"email": email, "last_seen": data_atual}).execute()
-    except Exception:
-        pass
-
-def buscar_usuarios_online():
-    try:
-        res = supabase.table("user_presence").select("*").execute()
-        df_presence = pd.DataFrame(res.data)
-        if df_presence.empty:
-            return []
-        
-        df_presence['last_seen'] = pd.to_datetime(df_presence['last_seen'], utc=True)
-        limite = pd.Timestamp.now(tz='UTC') - pd.Timedelta(minutes=5)
-        online_df = df_presence[df_presence['last_seen'] >= limite]
-        return online_df['email'].tolist()
-    except Exception:
-        return [st.session_state.user.email]
-
-registrar_presenca(st.session_state.user.email)
-
 def carregar_bons():
     try:
         response = supabase.table("ativos_bons").select("*").execute()
@@ -116,7 +92,8 @@ def carregar_bons():
             "setor_operacao": "Setor_Operacao", "termo": "Termo", "data": "Data", "observacoes": "Observacoes"
         }, inplace=True)
         return df
-    except Exception:
+    except Exception as e:
+        st.error(f"Erro ao ler ativos_bons do Supabase: {e}")
         return pd.DataFrame(columns=["Tipo", "Serial", "Marca", "Status", "Modalidade", "Usuario", "CPF", "Setor_Operacao", "Termo", "Data", "Observacoes"])
 
 def carregar_ruins():
@@ -132,11 +109,12 @@ def carregar_ruins():
             "setor_anterior": "Setor_Anterior", "data_registro": "Data_Registro", "data_coleta": "Data_Coleta"
         }, inplace=True)
         return df
-    except Exception:
+    except Exception as e:
+        st.error(f"Erro ao ler ativos_ruins do Supabase: {e}")
         return pd.DataFrame(columns=["Tipo", "Serial", "Marca", "Nova_Leva", "Status", "Status_Coleta", "Numero_Chamado", "Defeito_Descricao", "Usuario_Anterior", "Setor_Anterior", "Data_Registro", "Data_Coleta"])
 
 # ==========================================
-# 4. BARRA LATERAL (LOGOUT, ONLINE E CADASTRO)
+# 4. BARRA LATERAL
 # ==========================================
 nome_usuario_atual = formatar_nome_exibicao(st.session_state.user.email)
 st.sidebar.write(f"👤 Usuário: **{nome_usuario_atual}**")
@@ -145,13 +123,6 @@ if st.sidebar.button("Sair (Logout)", key="btn_logout"):
     supabase.auth.sign_out()
     st.session_state.user = None
     st.rerun()
-
-st.sidebar.markdown("---")
-
-st.sidebar.subheader("🟢 Usuários Online (5 min)")
-usuarios_online = buscar_usuarios_online()
-for u in usuarios_online:
-    st.sidebar.markdown(f"🟢 **{formatar_nome_exibicao(u)}**")
 
 st.sidebar.markdown("---")
 
