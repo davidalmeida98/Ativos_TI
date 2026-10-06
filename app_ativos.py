@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, date
 from supabase import create_client, Client
 
 st.set_page_config(page_title="Gestão Unificada de Ativos TI", layout="wide")
@@ -33,6 +33,32 @@ def formatar_nome_exibicao(email: str) -> str:
     if email and email.endswith(DOMINIO_PADRAO):
         return email.replace(DOMINIO_PADRAO, "")
     return email
+
+def formatar_data_iso(data_input) -> str:
+    """Garante que a data seja enviada no formato YYYY-MM-DD exigido pelo Supabase."""
+    if isinstance(data_input, (date, datetime)):
+        return data_input.strftime("%Y-%m-%d")
+    
+    texto = str(data_input).strip()
+    if not texto or texto == "None" or texto == "N/A":
+        return datetime.now().strftime("%Y-%m-%d")
+    
+    # Se já estiver em YYYY-MM-DD
+    try:
+        dt = datetime.strptime(texto, "%Y-%m-%d")
+        return dt.strftime("%Y-%m-%d")
+    except ValueError:
+        pass
+        
+    # Se estiver em DD-MM-YYYY ou DD-MM-YY
+    for fmt in ("%d-%m-%Y", "%d-%m-%y", "%d/%m/%Y", "%d/%m/%y"):
+        try:
+            dt = datetime.strptime(texto, fmt)
+            return dt.strftime("%Y-%m-%d")
+        except ValueError:
+            pass
+            
+    return datetime.now().strftime("%Y-%m-%d")
 
 # ==========================================
 # 1. CONFIGURAÇÃO DO SUPABASE
@@ -111,7 +137,7 @@ def carregar_todos_ativos():
     except Exception as e:
         st.error(f"Erro ao carregar ativos operacionais: {e}")
 
-    # 2. Carrega ativos_ruins (os 108 itens)
+    # 2. Carrega ativos_ruins
     try:
         res_ruins = supabase.table("ativos_ruins").select("*").execute()
         df_r = pd.DataFrame(res_ruins.data)
@@ -124,7 +150,6 @@ def carregar_todos_ativos():
                 "data_registro": "Data_Registro"
             }, inplace=True)
             
-            # Se o status da tabela antiga for "DEFEITO", ajusta para o padrão visual
             df_r["Status_Geral"] = df_r["Status_Geral"].replace({"DEFEITO": "Depósito TI - Defeito (Ruim)"})
             df_r["Tabela_Origem"] = "ativos_ruins"
             lista_df.append(df_r)
@@ -134,10 +159,8 @@ def carregar_todos_ativos():
     if not lista_df:
         return pd.DataFrame(columns=COLUNAS_ESPERADAS)
 
-    # Junta as duas tabelas num único DataFrame
     df_unificado = pd.concat(lista_df, ignore_index=True)
 
-    # Garante que todas as colunas padrão existam
     for col in COLUNAS_ESPERADAS:
         if col not in df_unificado.columns:
             df_unificado[col] = "N/A"
@@ -254,122 +277,4 @@ with tab1:
                         if s_opt.split()[0].lower() in st_geral.lower():
                             idx_st = i
                             break
-                    novo_st_geral = st.selectbox("Status / Localização:", LISTA_STATUS, index=idx_st, key=f"st_{serial}_{idx}")
-
-                with c_e2:
-                    novo_usuario = st.text_input("Nome do Usuário:", value=usuario, key=f"usr_{serial}_{idx}")
-                    novo_cpf = st.text_input("CPF:", value=cpf, key=f"cpf_{serial}_{idx}")
-                    novo_setor = st.text_input("Setor / Operação:", value=setor, key=f"set_{serial}_{idx}")
-                    
-                    opcoes_termo = ["ASSINADO", "PENDENTE", "N/A"]
-                    idx_termo = opcoes_termo.index(termo) if termo in opcoes_termo else 2
-                    novo_termo = st.selectbox("Status do Termo:", opcoes_termo, index=idx_termo, key=f"trm_{serial}_{idx}")
-
-                with c_e3:
-                    nova_data = st.text_input("Data de Registro / Alteração (AAAA-MM-DD):", value=data_reg, key=f"dt_{serial}_{idx}")
-                    opcoes_coleta = ["N/A", "Aguardando Coleta", "Coletado pela Vivo", "Coletado pela Empresa Locadora"]
-                    idx_coleta = opcoes_coleta.index(st_coleta) if st_coleta in opcoes_coleta else 0
-                    novo_st_coleta = st.selectbox("Situação da Coleta:", opcoes_coleta, index=idx_coleta, key=f"col_{serial}_{idx}")
-                    novo_chamado = st.text_input("Nº do Chamado:", value=num_chamado, key=f"cham_{serial}_{idx}")
-
-                c_bot1, c_bot2 = st.columns(2)
-                novo_defeito = c_bot1.text_input("Descrição do Defeito (Se houver):", value=defeito, key=f"def_{serial}_{idx}")
-                nova_obs = c_bot2.text_input("Observações Gerais:", value=obs, key=f"obs_{serial}_{idx}")
-
-                if st.button("💾 Salvar Alterações", key=f"btn_save_{serial}_{idx}"):
-                    payload_update = {
-                        "status": novo_st_geral,
-                        "usuario": sanitizar_texto(novo_usuario),
-                        "cpf": sanitizar_texto(novo_cpf),
-                        "setor_operacao": sanitizar_texto(novo_setor),
-                        "termo": novo_termo,
-                        "status_coleta": novo_st_coleta,
-                        "numero_chamado": sanitizar_texto(novo_chamado),
-                        "defeito_descricao": sanitizar_texto(novo_defeito),
-                        "observacoes": sanitizar_texto(nova_obs)
-                    }
-                    if tabela_origem == "ativos_bons":
-                        payload_update["data"] = sanitizar_texto(nova_data)
-                    else:
-                        payload_update["data_registro"] = sanitizar_texto(nova_data)
-
-                    try:
-                        supabase.table(tabela_origem).update(payload_update).eq("serial", serial).execute()
-                        st.success(f"Ativo {serial} atualizado com sucesso!")
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Erro ao salvar alterações: {e}")
-    else:
-        st.info("Nenhum ativo cadastrado na base de dados.")
-
-# --- TAB 2: CADASTRO COMPLETO ---
-with tab2:
-    st.subheader("➕ Cadastrar Novo Equipamento")
-    
-    with st.form("form_novo_ativo_completo", clear_on_submit=True):
-        st.markdown("##### 1. Dados Principais do Equipamento")
-        c_cad1, c_cad2, c_cad3, c_cad4 = st.columns(4)
-        tipo_in = c_cad1.selectbox("Tipo:", ["Notebook", "Desktop"])
-        serial_in = sanitizar_texto(c_cad2.text_input("Nº de Série (Obrigatório):"))
-        marca_in = c_cad3.selectbox("Marca:", ["Positivo", "HP", "Lenovo", "Dell", "VAIO", "Outra"])
-        status_in = c_cad4.selectbox("Status / Localização Inicial:", LISTA_STATUS)
-
-        st.markdown("---")
-        st.markdown("##### 2. Dados do Usuário & Operação")
-        c_cad5, c_cad6, c_cad7, c_cad8 = st.columns(4)
-        usuario_in = c_cad5.text_input("Nome do Usuário:")
-        cpf_in = c_cad6.text_input("CPF do Usuário:")
-        setor_in = c_cad7.text_input("Setor / Operação:")
-        termo_in = c_cad8.selectbox("Status do Termo:", ["ASSINADO", "PENDENTE", "N/A"])
-
-        st.markdown("---")
-        st.markdown("##### 3. Informações de Defeito / Coleta / Observações")
-        c_cad9, c_cad10, c_cad11, c_cad12 = st.columns(4)
-        data_in = c_cad9.text_input("Data (AAAA-MM-DD):", value=datetime.now().strftime("%Y-%m-%d"))
-        st_coleta_in = c_cad10.selectbox("Status de Coleta:", ["N/A", "Aguardando Coleta", "Coletado pela Vivo", "Coletado pela Empresa Locadora"])
-        chamado_in = c_cad11.text_input("Nº do Chamado (Opcional):")
-        defeito_in = c_cad12.text_input("Descrição do Defeito (Se houver):")
-        
-        obs_in = st.text_input("Observações Gerais:")
-
-        btn_cadastrar = st.form_submit_button("🚀 Cadastrar Ativo na Base")
-
-        if btn_cadastrar:
-            if not serial_in:
-                st.error("O Número de Série é obrigatório!")
-            else:
-                payload_insert = {
-                    "tipo": tipo_in,
-                    "serial": serial_in,
-                    "marca": marca_in,
-                    "status": status_in,
-                    "usuario": sanitizar_texto(usuario_in),
-                    "cpf": sanitizar_texto(cpf_in),
-                    "setor_operacao": sanitizar_texto(setor_in),
-                    "termo": termo_in,
-                    "data": sanitizar_texto(data_in),
-                    "status_coleta": st_coleta_in,
-                    "numero_chamado": sanitizar_texto(chamado_in),
-                    "defeito_descricao": sanitizar_texto(defeito_in),
-                    "observacoes": sanitizar_texto(obs_in)
-                }
-                try:
-                    supabase.table("ativos_bons").insert(payload_insert).execute()
-                    st.success(f"Equipamento {serial_in} cadastrado com sucesso!")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Erro ao cadastrar equipamento: {e}")
-
-# --- TAB 3: EXPORTAÇÃO ---
-with tab3:
-    st.subheader("📊 Exportar Relatórios")
-    if not df_ativos.empty:
-        csv_data = df_ativos.to_csv(index=False, sep=";").encode("utf-8-sig")
-        st.download_button(
-            "📥 Baixar Relatório Completo de Ativos (CSV)", 
-            csv_data, 
-            "relatorio_ativos_unificado.csv", 
-            "text/csv"
-        )
-    else:
-        st.info("Nenhum dado disponível para exportação.")
+                    novo_st_geral = st.selectbox("Status / Localização
