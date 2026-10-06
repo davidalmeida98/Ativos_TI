@@ -83,38 +83,66 @@ if not st.session_state.user_authenticated:
     st.stop()
 
 # ==========================================
-# 3. LEITURA DE DADOS
+# 3. LEITURA E COMBINAÇÃO DAS TABELAS (BONS + RUINS)
 # ==========================================
 COLUNAS_ESPERADAS = [
     "Tipo", "Serial", "Marca", "Status_Geral", "Usuario", "CPF", 
-    "Setor_Operacao", "Termo", "Data", "Status_Coleta", 
-    "Numero_Chamado", "Defeito_Descricao", "Observacoes"
+    "Setor_Operacao", "Termo", "Data_Registro", "Status_Coleta", 
+    "Numero_Chamado", "Defeito_Descricao", "Observacoes", "Tabela_Origem"
 ]
 
 def carregar_todos_ativos():
+    lista_df = []
+    
+    # 1. Carrega ativos_bons
     try:
-        response = supabase.table("ativos_bons").select("*").execute()
-        df = pd.DataFrame(response.data)
-        if df.empty:
-            return pd.DataFrame(columns=COLUNAS_ESPERADAS)
-            
-        df.rename(columns={
-            "tipo": "Tipo", "serial": "Serial", "marca": "Marca", "status": "Status_Geral",
-            "usuario": "Usuario", "cpf": "CPF", "setor_operacao": "Setor_Operacao", 
-            "termo": "Termo", "data": "Data", "status_coleta": "Status_Coleta",
-            "numero_chamado": "Numero_Chamado", "defeito_descricao": "Defeito_Descricao",
-            "observacoes": "Observacoes"
-        }, inplace=True)
-
-        # Garante que todas as colunas existam no DataFrame sem quebrar
-        for col in COLUNAS_ESPERADAS:
-            if col not in df.columns:
-                df[col] = "N/A"
-
-        return df
+        res_bons = supabase.table("ativos_bons").select("*").execute()
+        df_b = pd.DataFrame(res_bons.data)
+        if not df_b.empty:
+            df_b.rename(columns={
+                "tipo": "Tipo", "serial": "Serial", "marca": "Marca", "status": "Status_Geral",
+                "usuario": "Usuario", "cpf": "CPF", "setor_operacao": "Setor_Operacao", 
+                "termo": "Termo", "data": "Data_Registro", "status_coleta": "Status_Coleta",
+                "numero_chamado": "Numero_Chamado", "defeito_descricao": "Defeito_Descricao",
+                "observacoes": "Observacoes"
+            }, inplace=True)
+            df_b["Tabela_Origem"] = "ativos_bons"
+            lista_df.append(df_b)
     except Exception as e:
-        st.error(f"Erro ao carregar banco de dados: {e}")
+        st.error(f"Erro ao carregar ativos operacionais: {e}")
+
+    # 2. Carrega ativos_ruins (os 108 itens)
+    try:
+        res_ruins = supabase.table("ativos_ruins").select("*").execute()
+        df_r = pd.DataFrame(res_ruins.data)
+        if not df_r.empty:
+            df_r.rename(columns={
+                "tipo": "Tipo", "serial": "Serial", "marca": "Marca", 
+                "status": "Status_Geral", "status_coleta": "Status_Coleta",
+                "numero_chamado": "Numero_Chamado", "defeito_descricao": "Defeito_Descricao",
+                "usuario_anterior": "Usuario", "setor_anterior": "Setor_Operacao",
+                "data_registro": "Data_Registro"
+            }, inplace=True)
+            
+            # Se o status da tabela antiga for "DEFEITO", ajusta para o padrão visual
+            df_r["Status_Geral"] = df_r["Status_Geral"].replace({"DEFEITO": "Depósito TI - Defeito (Ruim)"})
+            df_r["Tabela_Origem"] = "ativos_ruins"
+            lista_df.append(df_r)
+    except Exception as e:
+        st.error(f"Erro ao carregar ativos com defeito: {e}")
+
+    if not lista_df:
         return pd.DataFrame(columns=COLUNAS_ESPERADAS)
+
+    # Junta as duas tabelas num único DataFrame
+    df_unificado = pd.concat(lista_df, ignore_index=True)
+
+    # Garante que todas as colunas padrão existam
+    for col in COLUNAS_ESPERADAS:
+        if col not in df_unificado.columns:
+            df_unificado[col] = "N/A"
+
+    return df_unificado
 
 # ==========================================
 # 4. BARRA LATERAL
@@ -142,10 +170,10 @@ df_ativos = carregar_todos_ativos()
 
 # Contadores rápidos
 total_ativos = len(df_ativos) if not df_ativos.empty else 0
-home_office = len(df_ativos[df_ativos["Status_Geral"] == "Em Uso (Home Office)"]) if not df_ativos.empty else 0
-deposito_bom = len(df_ativos[df_ativos["Status_Geral"] == "Depósito TI - Bom (Reserva)"]) if not df_ativos.empty else 0
-deposito_ruim = len(df_ativos[df_ativos["Status_Geral"] == "Depósito TI - Defeito (Ruim)"]) if not df_ativos.empty else 0
-coletados = len(df_ativos[df_ativos["Status_Geral"] == "Coletado / Baixado"]) if not df_ativos.empty else 0
+home_office = len(df_ativos[df_ativos["Status_Geral"].astype(str).str.contains("Home", na=False)]) if not df_ativos.empty else 0
+deposito_bom = len(df_ativos[df_ativos["Status_Geral"].astype(str).str.contains("Bom|ESTOQUE", na=False)]) if not df_ativos.empty else 0
+deposito_ruim = len(df_ativos[df_ativos["Status_Geral"].astype(str).str.contains("Defeito|Ruim|DEFEITO", na=False)]) if not df_ativos.empty else 0
+coletados = len(df_ativos[df_ativos["Status_Geral"].astype(str).str.contains("Coletado|Baixa", na=False)]) if not df_ativos.empty else 0
 
 c1, c2, c3, c4, c5 = st.columns(5)
 c1.metric("📦 Total de Ativos", total_ativos)
@@ -181,7 +209,7 @@ with tab1:
     df_view = df_ativos.copy()
     if not df_view.empty:
         if filtro_status != "Todos":
-            df_view = df_view[df_view["Status_Geral"] == filtro_status]
+            df_view = df_view[df_view["Status_Geral"].astype(str).str.contains(filtro_status.split()[0], case=False, na=False)]
         if filtro_tipo != "Todos":
             df_view = df_view[df_view["Tipo"] == filtro_tipo]
         if busca:
@@ -195,17 +223,19 @@ with tab1:
             serial = row.get("Serial", "N/A")
             tipo_eq = row.get("Tipo", "Notebook")
             marca = row.get("Marca", "N/A")
-            st_geral = row.get("Status_Geral", "Depósito TI - Bom (Reserva)")
+            st_geral = str(row.get("Status_Geral", "Depósito TI - Bom (Reserva)"))
             usuario = str(row.get("Usuario", "")) if pd.notna(row.get("Usuario")) and str(row.get("Usuario")) != "None" else ""
             cpf = str(row.get("CPF", "")) if pd.notna(row.get("CPF")) and str(row.get("CPF")) != "None" else ""
             setor = str(row.get("Setor_Operacao", "")) if pd.notna(row.get("Setor_Operacao")) and str(row.get("Setor_Operacao")) != "None" else ""
             termo = row.get("Termo", "N/A")
+            data_reg = str(row.get("Data_Registro", datetime.now().strftime("%Y-%m-%d")))
             st_coleta = row.get("Status_Coleta", "N/A")
             num_chamado = str(row.get("Numero_Chamado", "")) if pd.notna(row.get("Numero_Chamado")) and str(row.get("Numero_Chamado")) != "None" else ""
             defeito = str(row.get("Defeito_Descricao", "")) if pd.notna(row.get("Defeito_Descricao")) and str(row.get("Defeito_Descricao")) != "None" else ""
             obs = str(row.get("Observacoes", "")) if pd.notna(row.get("Observacoes")) and str(row.get("Observacoes")) != "None" else ""
+            tabela_origem = row.get("Tabela_Origem", "ativos_bons")
 
-            icone = "🏠" if "Home" in str(st_geral) else ("🟢" if "Bom" in str(st_geral) else ("🔴" if "Defeito" in str(st_geral) else "🚚"))
+            icone = "🏠" if "Home" in st_geral else ("🟢" if "Bom" in st_geral or "ESTOQUE" in st_geral else ("🔴" if "Defeito" in st_geral or "DEFEITO" in st_geral else "🚚"))
 
             titulo_header = f"{icone} [{tipo_eq}] Série: {serial} | Status: {st_geral} | Usuário: {usuario if usuario else 'N/A'}"
 
@@ -219,28 +249,34 @@ with tab1:
                     st.write(f"**Tipo:** {tipo_eq}")
                     st.write(f"**Marca:** {marca}")
                     
-                    idx_st = LISTA_STATUS.index(st_geral) if st_geral in LISTA_STATUS else 1
-                    novo_st_geral = st.selectbox("Status / Localização:", LISTA_STATUS, index=idx_st, key=f"st_{serial}")
+                    idx_st = 0
+                    for i, s_opt in enumerate(LISTA_STATUS):
+                        if s_opt.split()[0].lower() in st_geral.lower():
+                            idx_st = i
+                            break
+                    novo_st_geral = st.selectbox("Status / Localização:", LISTA_STATUS, index=idx_st, key=f"st_{serial}_{idx}")
 
                 with c_e2:
-                    novo_usuario = st.text_input("Nome do Usuário:", value=usuario, key=f"usr_{serial}")
-                    novo_cpf = st.text_input("CPF:", value=cpf, key=f"cpf_{serial}")
-                    novo_setor = st.text_input("Setor / Operação:", value=setor, key=f"set_{serial}")
+                    novo_usuario = st.text_input("Nome do Usuário:", value=usuario, key=f"usr_{serial}_{idx}")
+                    novo_cpf = st.text_input("CPF:", value=cpf, key=f"cpf_{serial}_{idx}")
+                    novo_setor = st.text_input("Setor / Operação:", value=setor, key=f"set_{serial}_{idx}")
                     
                     opcoes_termo = ["ASSINADO", "PENDENTE", "N/A"]
                     idx_termo = opcoes_termo.index(termo) if termo in opcoes_termo else 2
-                    novo_termo = st.selectbox("Status do Termo:", opcoes_termo, index=idx_termo, key=f"trm_{serial}")
+                    novo_termo = st.selectbox("Status do Termo:", opcoes_termo, index=idx_termo, key=f"trm_{serial}_{idx}")
 
                 with c_e3:
+                    nova_data = st.text_input("Data de Registro / Alteração (AAAA-MM-DD):", value=data_reg, key=f"dt_{serial}_{idx}")
                     opcoes_coleta = ["N/A", "Aguardando Coleta", "Coletado pela Vivo", "Coletado pela Empresa Locadora"]
                     idx_coleta = opcoes_coleta.index(st_coleta) if st_coleta in opcoes_coleta else 0
-                    novo_st_coleta = st.selectbox("Situação da Coleta:", opcoes_coleta, index=idx_coleta, key=f"col_{serial}")
-                    novo_chamado = st.text_input("Nº do Chamado:", value=num_chamado, key=f"cham_{serial}")
-                    novo_defeito = st.text_input("Descrição do Defeito (Se houver):", value=defeito, key=f"def_{serial}")
+                    novo_st_coleta = st.selectbox("Situação da Coleta:", opcoes_coleta, index=idx_coleta, key=f"col_{serial}_{idx}")
+                    novo_chamado = st.text_input("Nº do Chamado:", value=num_chamado, key=f"cham_{serial}_{idx}")
 
-                nova_obs = st.text_input("Observações Gerais:", value=obs, key=f"obs_{serial}")
+                c_bot1, c_bot2 = st.columns(2)
+                novo_defeito = c_bot1.text_input("Descrição do Defeito (Se houver):", value=defeito, key=f"def_{serial}_{idx}")
+                nova_obs = c_bot2.text_input("Observações Gerais:", value=obs, key=f"obs_{serial}_{idx}")
 
-                if st.button("💾 Salvar Alterações", key=f"btn_save_{serial}"):
+                if st.button("💾 Salvar Alterações", key=f"btn_save_{serial}_{idx}"):
                     payload_update = {
                         "status": novo_st_geral,
                         "usuario": sanitizar_texto(novo_usuario),
@@ -252,8 +288,13 @@ with tab1:
                         "defeito_descricao": sanitizar_texto(novo_defeito),
                         "observacoes": sanitizar_texto(nova_obs)
                     }
+                    if tabela_origem == "ativos_bons":
+                        payload_update["data"] = sanitizar_texto(nova_data)
+                    else:
+                        payload_update["data_registro"] = sanitizar_texto(nova_data)
+
                     try:
-                        supabase.table("ativos_bons").update(payload_update).eq("serial", serial).execute()
+                        supabase.table(tabela_origem).update(payload_update).eq("serial", serial).execute()
                         st.success(f"Ativo {serial} atualizado com sucesso!")
                         st.rerun()
                     except Exception as e:
@@ -283,10 +324,11 @@ with tab2:
 
         st.markdown("---")
         st.markdown("##### 3. Informações de Defeito / Coleta / Observações")
-        c_cad9, c_cad10, c_cad11 = st.columns(3)
-        st_coleta_in = c_cad9.selectbox("Status de Coleta:", ["N/A", "Aguardando Coleta", "Coletado pela Vivo", "Coletado pela Empresa Locadora"])
-        chamado_in = c_cad10.text_input("Nº do Chamado (Opcional):")
-        defeito_in = c_cad11.text_input("Descrição do Defeito (Se houver):")
+        c_cad9, c_cad10, c_cad11, c_cad12 = st.columns(4)
+        data_in = c_cad9.text_input("Data (AAAA-MM-DD):", value=datetime.now().strftime("%Y-%m-%d"))
+        st_coleta_in = c_cad10.selectbox("Status de Coleta:", ["N/A", "Aguardando Coleta", "Coletado pela Vivo", "Coletado pela Empresa Locadora"])
+        chamado_in = c_cad11.text_input("Nº do Chamado (Opcional):")
+        defeito_in = c_cad12.text_input("Descrição do Defeito (Se houver):")
         
         obs_in = st.text_input("Observações Gerais:")
 
@@ -305,7 +347,7 @@ with tab2:
                     "cpf": sanitizar_texto(cpf_in),
                     "setor_operacao": sanitizar_texto(setor_in),
                     "termo": termo_in,
-                    "data": datetime.now().strftime("%Y-%m-%d"),
+                    "data": sanitizar_texto(data_in),
                     "status_coleta": st_coleta_in,
                     "numero_chamado": sanitizar_texto(chamado_in),
                     "defeito_descricao": sanitizar_texto(defeito_in),
