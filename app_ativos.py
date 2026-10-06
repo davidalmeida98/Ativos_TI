@@ -35,7 +35,6 @@ def formatar_nome_exibicao(email: str) -> str:
     return email
 
 def formatar_data_iso(data_input) -> str:
-    """Garante que a data seja enviada no formato YYYY-MM-DD exigido pelo Supabase."""
     if isinstance(data_input, (date, datetime)):
         return data_input.strftime("%Y-%m-%d")
     
@@ -77,43 +76,58 @@ if "user_email" not in st.session_state:
     st.session_state.user_email = None
 
 # ==========================================
-# 2. TELA DE LOGIN OBRIGATÓRIA
+# 2. TELA DE LOGIN OBRIGATÓRIA (SUPORTA ENTER)
 # ==========================================
 if not st.session_state.user_authenticated:
     st.title("🔒 Acesso ao Sistema de Ativos TI")
     st.subheader("Login Obrigatório")
     
-    usuario_input = st.text_input("Usuário ou E-mail", key="login_email")
-    senha_login = st.text_input("Senha", type="password", key="login_senha")
-    
-    if st.button("Entrar", type="primary", key="btn_entrar"):
-        if usuario_input and senha_login:
-            email_final = tratar_usuario_ou_email(usuario_input)
-            try:
-                res = supabase.auth.sign_in_with_password({
-                    "email": email_final,
-                    "password": senha_login
-                })
-                if res.user:
-                    st.session_state.user_authenticated = True
-                    st.session_state.user_email = res.user.email
-                    st.success("Login efetuado com sucesso!")
-                    st.rerun()
-            except Exception:
-                st.error("Erro ao fazer login: Usuário ou senha incorretos.")
-        else:
-            st.warning("Preencha o usuário e a senha.")
+    with st.form("form_login_principal", clear_on_submit=False):
+        usuario_input = st.text_input("Usuário ou E-mail", key="login_email")
+        senha_login = st.text_input("Senha", type="password", key="login_senha")
+        btn_entrar = st.form_submit_button("Entrar", type="primary")
+        
+        if btn_entrar:
+            if usuario_input and senha_login:
+                email_final = tratar_usuario_ou_email(usuario_input)
+                try:
+                    res = supabase.auth.sign_in_with_password({
+                        "email": email_final,
+                        "password": senha_login
+                    })
+                    if res.user:
+                        st.session_state.user_authenticated = True
+                        st.session_state.user_email = res.user.email
+                        st.success("Login efetuado com sucesso!")
+                        st.rerun()
+                except Exception:
+                    st.error("Erro ao fazer login: Usuário ou senha incorretos.")
+            else:
+                st.warning("Preencha o usuário e a senha.")
 
     st.stop()
 
 # ==========================================
-# 3. LEITURA E COMBINAÇÃO DAS TABELAS (BONS + RUINS)
+# 3. LEITURA E TRATAMENTO DOS DADOS (BONS + RUINS)
 # ==========================================
 COLUNAS_ESPERADAS = [
     "Tipo", "Serial", "Marca", "Status_Geral", "Usuario", "CPF", 
     "Setor_Operacao", "Termo", "Data_Registro", "Status_Coleta", 
     "Numero_Chamado", "Defeito_Descricao", "Observacoes", "Tabela_Origem"
 ]
+
+def normalizar_status_bon(row):
+    status_raw = str(row.get("status", "")).upper()
+    modalidade_raw = str(row.get("modalidade", "")).lower()
+    
+    if "ENTREGUE" in status_raw or "home" in modalidade_raw:
+        return "Em Uso (Home Office)"
+    elif "ESTOQUE" in status_raw or "deposito" in modalidade_raw or "reserva" in modalidade_raw:
+        return "Depósito TI - Bom (Reserva)"
+    elif "COLETADO" in status_raw or "BAIXA" in status_raw:
+        return "Coletado / Baixado"
+    else:
+        return "Depósito TI - Bom (Reserva)"
 
 def carregar_todos_ativos():
     lista_df = []
@@ -123,8 +137,9 @@ def carregar_todos_ativos():
         res_bons = supabase.table("ativos_bons").select("*").execute()
         df_b = pd.DataFrame(res_bons.data)
         if not df_b.empty:
+            df_b["Status_Geral"] = df_b.apply(normalizar_status_bon, axis=1)
             df_b.rename(columns={
-                "tipo": "Tipo", "serial": "Serial", "marca": "Marca", "status": "Status_Geral",
+                "tipo": "Tipo", "serial": "Serial", "marca": "Marca",
                 "usuario": "Usuario", "cpf": "CPF", "setor_operacao": "Setor_Operacao", 
                 "termo": "Termo", "data": "Data_Registro", "status_coleta": "Status_Coleta",
                 "numero_chamado": "Numero_Chamado", "defeito_descricao": "Defeito_Descricao",
@@ -142,13 +157,13 @@ def carregar_todos_ativos():
         if not df_r.empty:
             df_r.rename(columns={
                 "tipo": "Tipo", "serial": "Serial", "marca": "Marca", 
-                "status": "Status_Geral", "status_coleta": "Status_Coleta",
-                "numero_chamado": "Numero_Chamado", "defeito_descricao": "Defeito_Descricao",
-                "usuario_anterior": "Usuario", "setor_anterior": "Setor_Operacao",
-                "data_registro": "Data_Registro"
+                "status_coleta": "Status_Coleta", "numero_chamado": "Numero_Chamado", 
+                "defeito_descricao": "Defeito_Descricao", "usuario_anterior": "Usuario", 
+                "setor_anterior": "Setor_Operacao", "data_registro": "Data_Registro"
             }, inplace=True)
             
-            df_r["Status_Geral"] = df_r["Status_Geral"].replace({"DEFEITO": "Depósito TI - Defeito (Ruim)"})
+            # Ajusta status para Depósito TI - Defeito (Ruim)
+            df_r["Status_Geral"] = "Depósito TI - Defeito (Ruim)"
             df_r["Tabela_Origem"] = "ativos_ruins"
             lista_df.append(df_r)
     except Exception as e:
@@ -189,12 +204,12 @@ st.title("🖥️ Gestão Unificada de Ativos TI")
 
 df_ativos = carregar_todos_ativos()
 
-# Contadores rápidos
+# Contadores exatos pelos status
 total_ativos = len(df_ativos) if not df_ativos.empty else 0
-home_office = len(df_ativos[df_ativos["Status_Geral"].astype(str).str.contains("Home", na=False)]) if not df_ativos.empty else 0
-deposito_bom = len(df_ativos[df_ativos["Status_Geral"].astype(str).str.contains("Bom|ESTOQUE", na=False)]) if not df_ativos.empty else 0
-deposito_ruim = len(df_ativos[df_ativos["Status_Geral"].astype(str).str.contains("Defeito|Ruim|DEFEITO", na=False)]) if not df_ativos.empty else 0
-coletados = len(df_ativos[df_ativos["Status_Geral"].astype(str).str.contains("Coletado|Baixa", na=False)]) if not df_ativos.empty else 0
+home_office = len(df_ativos[df_ativos["Status_Geral"] == "Em Uso (Home Office)"]) if not df_ativos.empty else 0
+deposito_bom = len(df_ativos[df_ativos["Status_Geral"] == "Depósito TI - Bom (Reserva)"]) if not df_ativos.empty else 0
+deposito_ruim = len(df_ativos[df_ativos["Status_Geral"] == "Depósito TI - Defeito (Ruim)"]) if not df_ativos.empty else 0
+coletados = len(df_ativos[df_ativos["Status_Geral"] == "Coletado / Baixado"]) if not df_ativos.empty else 0
 
 c1, c2, c3, c4, c5 = st.columns(5)
 c1.metric("📦 Total de Ativos", total_ativos)
@@ -230,7 +245,7 @@ with tab1:
     df_view = df_ativos.copy()
     if not df_view.empty:
         if filtro_status != "Todos":
-            df_view = df_view[df_view["Status_Geral"].astype(str).str.contains(filtro_status.split()[0], case=False, na=False)]
+            df_view = df_view[df_view["Status_Geral"] == filtro_status]
         if filtro_tipo != "Todos":
             df_view = df_view[df_view["Tipo"] == filtro_tipo]
         if busca:
@@ -256,7 +271,7 @@ with tab1:
             obs = str(row.get("Observacoes", "")) if pd.notna(row.get("Observacoes")) and str(row.get("Observacoes")) != "None" else ""
             tabela_origem = row.get("Tabela_Origem", "ativos_bons")
 
-            icone = "🏠" if "Home" in st_geral else ("🟢" if "Bom" in st_geral or "ESTOQUE" in st_geral else ("🔴" if "Defeito" in st_geral or "DEFEITO" in st_geral else "🚚"))
+            icone = "🏠" if "Home" in st_geral else ("🟢" if "Bom" in st_geral else ("🔴" if "Defeito" in st_geral else "🚚"))
 
             titulo_header = f"{icone} [{tipo_eq}] Série: {serial} | Status: {st_geral} | Usuário: {usuario if usuario else 'N/A'}"
 
@@ -270,11 +285,7 @@ with tab1:
                     st.write(f"**Tipo:** {tipo_eq}")
                     st.write(f"**Marca:** {marca}")
                     
-                    idx_st = 0
-                    for i, s_opt in enumerate(LISTA_STATUS):
-                        if s_opt.split()[0].lower() in st_geral.lower():
-                            idx_st = i
-                            break
+                    idx_st = LISTA_STATUS.index(st_geral) if st_geral in LISTA_STATUS else 1
                     novo_st_geral = st.selectbox("Status / Localização:", LISTA_STATUS, index=idx_st, key=f"st_{serial}_{idx}")
 
                 with c_e2:
@@ -299,8 +310,13 @@ with tab1:
 
                 if st.button("💾 Salvar Alterações", key=f"btn_save_{serial}_{idx}"):
                     data_formatada = formatar_data_iso(nova_data)
+                    
+                    # Converte o status amigável da tela para os códigos do banco original
+                    status_db = "ENTREGUE" if "Home" in novo_st_geral else ("ESTOQUE" if "Bom" in novo_st_geral else ("DEFEITO" if "Defeito" in novo_st_geral else "COLETADO"))
+                    modalidade_db = "Home Office" if "Home" in novo_st_geral else "Depósito TI (Reserva)"
+
                     payload_update = {
-                        "status": novo_st_geral,
+                        "status": status_db,
                         "usuario": sanitizar_texto(novo_usuario),
                         "cpf": sanitizar_texto(novo_cpf),
                         "setor_operacao": sanitizar_texto(novo_setor),
@@ -312,6 +328,7 @@ with tab1:
                     }
                     if tabela_origem == "ativos_bons":
                         payload_update["data"] = data_formatada
+                        payload_update["modalidade"] = modalidade_db
                     else:
                         payload_update["data_registro"] = data_formatada
 
@@ -354,30 +371,52 @@ with tab2:
         
         obs_in = st.text_input("Observações Gerais:")
 
-        btn_cadastrar = st.form_submit_button("🚀 Cadastrar Ativo na Base")
+        btn_cadastrar = st.form_submit_button("🚀 Cadastrar Ativo na Base", type="primary")
 
         if btn_cadastrar:
             if not serial_in:
                 st.error("O Número de Série é obrigatório!")
             else:
                 data_formatada = formatar_data_iso(data_in)
-                payload_insert = {
-                    "tipo": tipo_in,
-                    "serial": serial_in,
-                    "marca": marca_in,
-                    "status": status_in,
-                    "usuario": sanitizar_texto(usuario_in),
-                    "cpf": sanitizar_texto(cpf_in),
-                    "setor_operacao": sanitizar_texto(setor_in),
-                    "termo": termo_in,
-                    "data": data_formatada,
-                    "status_coleta": st_coleta_in,
-                    "numero_chamado": sanitizar_texto(chamado_in),
-                    "defeito_descricao": sanitizar_texto(defeito_in),
-                    "observacoes": sanitizar_texto(obs_in)
-                }
+                status_db = "ENTREGUE" if "Home" in status_in else ("ESTOQUE" if "Bom" in status_in else ("DEFEITO" if "Defeito" in status_in else "COLETADO"))
+                modalidade_db = "Home Office" if "Home" in status_in else "Depósito TI (Reserva)"
+
+                # Se for cadastrado como defeito, insere na tabela de ruins
+                if "Defeito" in status_in:
+                    payload_insert = {
+                        "tipo": tipo_in,
+                        "serial": serial_in,
+                        "marca": marca_in,
+                        "status": "DEFEITO",
+                        "usuario_anterior": sanitizar_texto(usuario_in),
+                        "setor_anterior": sanitizar_texto(setor_in),
+                        "data_registro": data_formatada,
+                        "status_coleta": st_coleta_in,
+                        "numero_chamado": sanitizar_texto(chamado_in),
+                        "defeito_descricao": sanitizar_texto(defeito_in)
+                    }
+                    tabela_alvo = "ativos_ruins"
+                else:
+                    payload_insert = {
+                        "tipo": tipo_in,
+                        "serial": serial_in,
+                        "marca": marca_in,
+                        "status": status_db,
+                        "modalidade": modalidade_db,
+                        "usuario": sanitizar_texto(usuario_in),
+                        "cpf": sanitizar_texto(cpf_in),
+                        "setor_operacao": sanitizar_texto(setor_in),
+                        "termo": termo_in,
+                        "data": data_formatada,
+                        "status_coleta": st_coleta_in,
+                        "numero_chamado": sanitizar_texto(chamado_in),
+                        "defeito_descricao": sanitizar_texto(defeito_in),
+                        "observacoes": sanitizar_texto(obs_in)
+                    }
+                    tabela_alvo = "ativos_bons"
+
                 try:
-                    supabase.table("ativos_bons").insert(payload_insert).execute()
+                    supabase.table(tabela_alvo).insert(payload_insert).execute()
                     st.success(f"Equipamento {serial_in} cadastrado com sucesso!")
                     st.rerun()
                 except Exception as e:
