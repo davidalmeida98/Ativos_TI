@@ -3,7 +3,7 @@ import pandas as pd
 from datetime import datetime
 from supabase import create_client, Client
 
-st.set_page_config(page_title="Gestão de Ativos TI - Cloud", layout="wide")
+st.set_page_config(page_title="Gestão Unificada de Ativos TI", layout="wide")
 
 # Oculta menus e cabeçalhos do Streamlit
 st.markdown("""
@@ -46,7 +46,7 @@ def init_supabase() -> Client:
 
 supabase = init_supabase()
 
-# Controle estrito de sessão por navegador
+# Controle de sessão por navegador
 if "user_authenticated" not in st.session_state:
     st.session_state.user_authenticated = False
 if "user_email" not in st.session_state:
@@ -83,43 +83,33 @@ if not st.session_state.user_authenticated:
     st.stop()
 
 # ==========================================
-# 3. LEITURA DE DADOS DO SUPABASE
+# 3. LEITURA DE DADOS (TABELA UNIFICADA)
 # ==========================================
-def carregar_bons():
+def carregar_todos_ativos():
     try:
+        # Busca da tabela principal de ativos
         response = supabase.table("ativos_bons").select("*").execute()
         df = pd.DataFrame(response.data)
         if df.empty:
-            return pd.DataFrame(columns=["Tipo", "Serial", "Marca", "Status", "Modalidade", "Usuario", "CPF", "Setor_Operacao", "Termo", "Data", "Observacoes"])
+            return pd.DataFrame(columns=[
+                "Tipo", "Serial", "Marca", "Status_Geral", "Usuario", "CPF", 
+                "Setor_Operacao", "Termo", "Data", "Status_Coleta", 
+                "Numero_Chamado", "Defeito_Descricao", "Observacoes"
+            ])
         df.rename(columns={
-            "tipo": "Tipo", "serial": "Serial", "marca": "Marca", "status": "Status",
-            "modalidade": "Modalidade", "usuario": "Usuario", "cpf": "CPF",
-            "setor_operacao": "Setor_Operacao", "termo": "Termo", "data": "Data", "observacoes": "Observacoes"
+            "tipo": "Tipo", "serial": "Serial", "marca": "Marca", "status": "Status_Geral",
+            "usuario": "Usuario", "cpf": "CPF", "setor_operacao": "Setor_Operacao", 
+            "termo": "Termo", "data": "Data", "status_coleta": "Status_Coleta",
+            "numero_chamado": "Numero_Chamado", "defeito_descricao": "Defeito_Descricao",
+            "observacoes": "Observacoes"
         }, inplace=True)
         return df
     except Exception as e:
-        st.error(f"Erro ao carregar dados: {e}")
-        return pd.DataFrame(columns=["Tipo", "Serial", "Marca", "Status", "Modalidade", "Usuario", "CPF", "Setor_Operacao", "Termo", "Data", "Observacoes"])
-
-def carregar_ruins():
-    try:
-        response = supabase.table("ativos_ruins").select("*").execute()
-        df = pd.DataFrame(response.data)
-        if df.empty:
-            return pd.DataFrame(columns=["Tipo", "Serial", "Marca", "Nova_Leva", "Status", "Status_Coleta", "Numero_Chamado", "Defeito_Descricao", "Usuario_Anterior", "Setor_Anterior", "Data_Registro", "Data_Coleta"])
-        df.rename(columns={
-            "tipo": "Tipo", "serial": "Serial", "marca": "Marca", "nova_leva": "Nova_Leva",
-            "status": "Status", "status_coleta": "Status_Coleta", "numero_chamado": "Numero_Chamado",
-            "defeito_descricao": "Defeito_Descricao", "usuario_anterior": "Usuario_Anterior",
-            "setor_anterior": "Setor_Anterior", "data_registro": "Data_Registro", "data_coleta": "Data_Coleta"
-        }, inplace=True)
-        return df
-    except Exception as e:
-        st.error(f"Erro ao carregar dados: {e}")
-        return pd.DataFrame(columns=["Tipo", "Serial", "Marca", "Nova_Leva", "Status", "Status_Coleta", "Numero_Chamado", "Defeito_Descricao", "Usuario_Anterior", "Setor_Anterior", "Data_Registro", "Data_Coleta"])
+        st.error(f"Erro ao carregar banco de dados: {e}")
+        return pd.DataFrame()
 
 # ==========================================
-# 4. BARRA LATERAL (APENAS LOGOUT)
+# 4. BARRA LATERAL (LOGOUT E INFORMAÇÕES)
 # ==========================================
 nome_usuario_atual = formatar_nome_exibicao(st.session_state.user_email)
 st.sidebar.write(f"👤 Usuário Conectado: **{nome_usuario_atual}**")
@@ -138,270 +128,38 @@ st.sidebar.markdown("---")
 # ==========================================
 # 5. INTERFACE PRINCIPAL
 # ==========================================
-st.title("🖥️ Gestão de Ativos TI (Nuvem)")
+st.title("🖥️ Gestão Unificada de Ativos TI")
 
-df_bons = carregar_bons()
-df_ruins = carregar_ruins()
+df_ativos = carregar_todos_ativos()
 
-aguardando = len(df_ruins[df_ruins["Status_Coleta"] == "Aguardando Coleta"]) if not df_ruins.empty else 0
-coletados = len(df_ruins[df_ruins["Status_Coleta"].str.contains("Coletado", na=False)]) if not df_ruins.empty else 0
+# Contadores rápidos de Status
+total_ativos = len(df_ativos) if not df_ativos.empty else 0
+home_office = len(df_ativos[df_ativos["Status_Geral"] == "Em Uso (Home Office)"]) if not df_ativos.empty else 0
+deposito_bom = len(df_ativos[df_ativos["Status_Geral"] == "Depósito TI - Bom (Reserva)"]) if not df_ativos.empty else 0
+deposito_ruim = len(df_ativos[df_ativos["Status_Geral"] == "Depósito TI - Defeito (Ruim)"]) if not df_ativos.empty else 0
+coletados = len(df_ativos[df_ativos["Status_Geral"] == "Coletado / Baixado"]) if not df_ativos.empty else 0
 
-c1, c2, c3, c4 = st.columns(4)
-c1.metric("🟢 Bons (Home Office / Depósito TI)", len(df_bons))
-c2.metric("🔴 Ruins / Defeito", len(df_ruins))
-c3.metric("⏳ Aguardando Coleta", aguardando)
-c4.metric("📦 Coletados", coletados)
+c1, c2, c3, c4, c5 = st.columns(5)
+c1.metric("📦 Total de Ativos", total_ativos)
+c2.metric("🏠 Home Office", home_office)
+c3.metric("🟢 Depósito (Bom)", deposito_bom)
+c4.metric("🔴 Depósito (Ruim)", deposito_ruim)
+c5.metric("🚚 Coletados / Baixa", coletados)
 
 st.markdown("---")
 
-tab1, tab2, tab3, tab4 = st.tabs([
-    "🟢 Ativos Bons (Home Office / Depósito TI)", 
-    "🔴 Ativos Ruins & Coleta em Massa", 
-    "➕ Cadastrar Equipamentos", 
-    "📊 Exportar Relatórios"
+tab1, tab2, tab3 = st.tabs([
+    "📋 Lista Geral de Ativos (Consulta & Edição)", 
+    "➕ Cadastrar Novo Ativo", 
+    "📊 Exportar Relatório"
 ])
 
-# --- TAB 1: ATIVOS BONS ---
-with tab1:
-    st.subheader("🟢 Ativos Operacionais e em Estoque")
-    
-    modo_vis = st.radio(
-        "Modo de Visualização:", 
-        ["📋 Tabela Completa (Apenas Leitura)", "📝 Fichas Individuais (Edição de Dados)"], 
-        horizontal=True,
-        key="modo_vis_bons"
-    )
-    
-    col_b1, col_b2 = st.columns(2)
-    busca_bom = sanitizar_texto(col_b1.text_input("Buscar por Nº de Série, Usuário ou Setor:", key="busca_bom"))
-    filtro_tipo_bom = col_b2.selectbox("Filtrar Tipo:", ["Todos", "Notebook", "Desktop"], key="f_tp_b")
-    
-    df_b = df_bons.copy()
-    if not df_b.empty:
-        if filtro_tipo_bom != "Todos":
-            df_b = df_b[df_b["Tipo"] == filtro_tipo_bom]
-        if busca_bom:
-            mask = df_b.fillna("").astype(str).apply(lambda r: r.str.contains(busca_bom, case=False).any(), axis=1)
-            df_b = df_b[mask]
-        
-        st.markdown("---")
-        
-        if "Tabela Completa" in modo_vis:
-            st.dataframe(
-                df_b[["Tipo", "Serial", "Marca", "Modalidade", "Usuario", "CPF", "Setor_Operacao", "Termo", "Data", "Observacoes"]], 
-                use_container_width=True
-            )
-        else:
-            st.write(f"Exibindo **{len(df_b)}** equipamento(s). Abra o item para alterar os dados:")
+LISTA_STATUS = [
+    "Em Uso (Home Office)", 
+    "Depósito TI - Bom (Reserva)", 
+    "Depósito TI - Defeito (Ruim)", 
+    "Coletado / Baixado"
+]
 
-            for idx, row in df_b.iterrows():
-                serial = row.get("Serial", "N/A")
-                tipo_eq = row.get("Tipo", "Notebook")
-                marca = row.get("Marca", "N/A")
-                usuario = row.get("Usuario", "")
-                modalidade = row.get("Modalidade", "Home Office")
-                cpf = row.get("CPF", "")
-                setor = row.get("Setor_Operacao", "")
-                termo = row.get("Termo", "N/A")
-                obs = row.get("Observacoes", "")
-
-                usuario_str = str(usuario) if pd.notna(usuario) and usuario != "None" else ""
-                cpf_str = str(cpf) if pd.notna(cpf) and cpf != "None" else ""
-                setor_str = str(setor) if pd.notna(setor) and setor != "None" else ""
-                obs_str = str(obs) if pd.notna(obs) and obs != "None" else ""
-
-                titulo_expander = f"🟢 [{tipo_eq}] Série: {serial} | Usuário: {usuario_str if usuario_str else 'NÃO ATRIBUÍDO'} | Setor: {setor_str if setor_str else 'N/A'}"
-                
-                with st.expander(titulo_expander):
-                    c_left, c_right = st.columns(2)
-                    
-                    with c_left:
-                        st.write(f"**Tipo:** {tipo_eq}")
-                        st.write(f"**Nº de Série:** {serial}")
-                        st.write(f"**Marca:** {marca}")
-                        
-                        opcoes_mod = ["Home Office", "Depósito TI (Reserva)"]
-                        idx_mod = opcoes_mod.index(modalidade) if modalidade in opcoes_mod else 0
-                        nova_modalidade = st.selectbox("Localização / Modalidade:", opcoes_mod, index=idx_mod, key=f"mod_{serial}")
-
-                    with c_right:
-                        novo_usuario = st.text_input("Nome do Usuário (Editar):", value=usuario_str, key=f"usr_{serial}")
-                        novo_cpf = st.text_input("CPF:", value=cpf_str, key=f"cpf_{serial}")
-                        novo_setor = st.text_input("Setor / Operação:", value=setor_str, key=f"set_{serial}")
-                        
-                        opcoes_termo = ["ASSINADO", "PENDENTE", "N/A"]
-                        idx_termo = opcoes_termo.index(termo) if termo in opcoes_termo else 2
-                        novo_termo = st.selectbox("Status do Termo:", opcoes_termo, index=idx_termo, key=f"trm_{serial}")
-                        
-                        nova_obs = st.text_input("Observações:", value=obs_str, key=f"obs_{serial}")
-
-                    if st.button("💾 Salvar Alterações", key=f"btn_save_bom_{serial}"):
-                        novo_status = "ENTREGUE" if nova_modalidade == "Home Office" else "ESTOQUE"
-                        
-                        payload_update = {
-                            "usuario": sanitizar_texto(novo_usuario),
-                            "cpf": sanitizar_texto(novo_cpf),
-                            "setor_operacao": sanitizar_texto(novo_setor),
-                            "modalidade": nova_modalidade,
-                            "status": novo_status,
-                            "termo": novo_termo,
-                            "observacoes": sanitizar_texto(nova_obs)
-                        }
-                        
-                        try:
-                            supabase.table("ativos_bons").update(payload_update).eq("serial", serial).execute()
-                            st.success(f"Ativo {serial} atualizado com sucesso!")
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"Erro ao atualizar no banco: {e}")
-
-    else:
-        st.info("Nenhum ativo bom cadastrado até o momento.")
-
-# --- TAB 2: ATIVOS RUINS & COLETA ---
-with tab2:
-    st.subheader("🔴 Triagem de Defeitos e Atualização de Coleta em Massa")
-    df_r = df_ruins.copy()
-    
-    if not df_r.empty:
-        col_f1, col_f2, col_f3 = st.columns(3)
-        busca_ruim = sanitizar_texto(col_f1.text_input("Buscar por Nº de Série, Marca ou Chamado:", key="busca_ruim"))
-        filtro_tipo_ruim = col_f2.selectbox("Filtrar Tipo:", ["Todos", "Notebook", "Desktop"], key="f_tp_r")
-        filtro_coleta = col_f3.selectbox("Status da Coleta:", ["Todos", "Aguardando Coleta", "Coletado pela Vivo", "Coletado pela Empresa Locadora"])
-        
-        if filtro_tipo_ruim != "Todos":
-            df_r = df_r[df_r["Tipo"] == filtro_tipo_ruim]
-        if filtro_coleta != "Todos":
-            df_r = df_r[df_r["Status_Coleta"] == filtro_coleta]
-        if busca_ruim:
-            mask_r = df_r.fillna("").astype(str).apply(lambda r: r.str.contains(busca_ruim, case=False).any(), axis=1)
-            df_r = df_r[mask_r]
-
-        st.markdown("---")
-        with st.expander("🚚 Atualização de Coleta em Lote (Selecionar Múltiplos)", expanded=False):
-            df_r_sel = df_r.copy()
-            df_r_sel["Selecionar"] = False
-            
-            edited_df = st.data_editor(
-                df_r_sel[["Selecionar", "Tipo", "Serial", "Marca", "Nova_Leva", "Status_Coleta", "Numero_Chamado", "Defeito_Descricao"]],
-                column_config={"Selecionar": st.column_config.CheckboxColumn("Selecionar", default=False)},
-                disabled=["Tipo", "Serial", "Marca", "Nova_Leva", "Numero_Chamado", "Defeito_Descricao"],
-                hide_index=True,
-                key="editor_coleta"
-            )
-            
-            col_m1, col_m2 = st.columns(2)
-            novo_status_massa = col_m1.selectbox("Alterar Status de Coleta dos Selecionados Para:", ["Coletado pela Vivo", "Coletado pela Empresa Locadora", "Em Processo de Baixa", "Aguardando Coleta"])
-            
-            if col_m2.button("🚀 Aplicar Alteração nos Itens Marcados"):
-                itens_selecionados = edited_df[edited_df["Selecionar"] == True]["Serial"].tolist()
-                if not itens_selecionados:
-                    st.error("Nenhum equipamento foi selecionado!")
-                else:
-                    for ser in itens_selecionados:
-                        payload = {"status_coleta": novo_status_massa}
-                        if "Coletado" in novo_status_massa:
-                            payload["data_coleta"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                        supabase.table("ativos_ruins").update(payload).eq("serial", ser).execute()
-                    st.success(f"Status de {len(itens_selecionados)} equipamento(s) atualizado!")
-                    st.rerun()
-
-        st.markdown("---")
-        for idx, row in df_r.iterrows():
-            serial = row.get("Serial", "N/A")
-            tipo_eq = row.get("Tipo", "Notebook")
-            marca = row.get("Marca", "N/A")
-            nova_leva = row.get("Nova_Leva", "Não")
-            st_coleta = row.get("Status_Coleta", "Aguardando Coleta")
-            defeito = row.get("Defeito_Descricao", "N/A")
-            chamado = row.get("Numero_Chamado", "")
-            
-            icone = "⏳" if st_coleta == "Aguardando Coleta" else "📦"
-            with st.expander(f"{icone} [{tipo_eq}] Série: {serial} | Marca: {marca} | Coleta: {st_coleta}"):
-                c_left, c_right = st.columns(2)
-                with c_left:
-                    st.write(f"**Tipo:** {tipo_eq}")
-                    st.write(f"**Nº de Série:** {serial}")
-                    st.write(f"**Marca / Modelo:** {marca}")
-                    st.write(f"**É da Nova Leva?:** {nova_leva}")
-                with c_right:
-                    opcoes_coleta = ["Aguardando Coleta", "Coletado pela Vivo", "Coletado pela Empresa Locadora", "Em Processo de Baixa"]
-                    idx_coleta = opcoes_coleta.index(st_coleta) if st_coleta in opcoes_coleta else 0
-                    novo_st_coleta = st.selectbox("Situação da Coleta:", opcoes_coleta, index=idx_coleta, key=f"col_{serial}")
-                    novo_chamado = st.text_input("Nº do Chamado:", value=str(chamado) if pd.notna(chamado) else "", key=f"cham_{serial}")
-                    novo_defeito = st.text_input("Descrição do Defeito:", value=str(defeito), key=f"def_{serial}")
-                    
-                if st.button("Salvar Ficha", key=f"btn_r_{serial}"):
-                    update_data = {
-                        "status_coleta": novo_st_coleta,
-                        "numero_chamado": sanitizar_texto(novo_chamado),
-                        "defeito_descricao": sanitizar_texto(novo_defeito)
-                    }
-                    supabase.table("ativos_ruins").update(update_data).eq("serial", serial).execute()
-                    st.success("Atualizado no banco!")
-                    st.rerun()
-    else:
-        st.info("Nenhum equipamento com defeito cadastrado.")
-
-# --- TAB 3: CADASTRO DE EQUIPAMENTOS ---
-with tab3:
-    st.subheader("➕ Entrada de Equipamentos")
-    tipo_registro = st.radio("Estado Inicial:", ["🟢 BOM / Operacional (Home Office ou Depósito TI)", "🔴 RUIM / Com Defeito"])
-    
-    with st.form("form_novo", clear_on_submit=True):
-        c_f1, c_f2 = st.columns(2)
-        tipo_eq_in = c_f1.selectbox("Tipo de Equipamento:", ["Notebook", "Desktop"])
-        serial_in = sanitizar_texto(c_f2.text_input("Número de Série (Obrigatório):"))
-        marca_in = st.selectbox("Marca:", ["Positivo", "HP", "Lenovo", "Dell", "VAIO", "Outra"])
-        
-        if "BOM" in tipo_registro:
-            modalidade_in = st.selectbox("Localização / Modalidade:", ["Home Office", "Depósito TI (Reserva)"])
-            usuario_in = st.text_input("Nome do Usuário:")
-            cpf_in = st.text_input("CPF:")
-            setor_in = st.text_input("Setor / Operação:")
-            termo_in = st.selectbox("Status do Termo:", ["ASSINADO", "PENDENTE", "N/A"])
-            obs_in = st.text_input("Observações:")
-        else:
-            nova_leva_in = st.radio("É da Nova Leva?", ["Sim", "Não"])
-            st_coleta_in = st.selectbox("Status Inicial da Coleta:", ["Aguardando Coleta", "Coletado pela Vivo", "Coletado pela Empresa Locadora"])
-            chamado_in = st.text_input("Nº do Chamado:")
-            defeito_in = st.text_input("Descrição do Defeito:")
-            
-        submeter = st.form_submit_button("Salvar no Banco Cloud")
-        
-        if submeter:
-            if not serial_in:
-                st.error("Preencha o Número de Série!")
-            else:
-                if "BOM" in tipo_registro:
-                    payload = {
-                        "tipo": tipo_eq_in, "serial": serial_in, "marca": marca_in,
-                        "status": "ENTREGUE" if modalidade_in == "Home Office" else "ESTOQUE",
-                        "modalidade": modalidade_in, "usuario": sanitizar_texto(usuario_in), 
-                        "cpf": sanitizar_texto(cpf_in), "setor_operacao": sanitizar_texto(setor_in), 
-                        "termo": termo_in, "data": datetime.now().strftime("%Y-%m-%d"), 
-                        "observacoes": sanitizar_texto(obs_in)
-                    }
-                    supabase.table("ativos_bons").insert(payload).execute()
-                else:
-                    payload = {
-                        "tipo": tipo_eq_in, "serial": serial_in, "marca": marca_in,
-                        "nova_leva": nova_leva_in, "status": "DEFEITO", "status_coleta": st_coleta_in,
-                        "numero_chamado": sanitizar_texto(chamado_in), 
-                        "defeito_descricao": sanitizar_texto(defeito_in),
-                        "data_registro": datetime.now().strftime("%Y-%m-%d")
-                    }
-                    supabase.table("ativos_ruins").insert(payload).execute()
-                st.success("Equipamento salvo com sucesso!")
-                st.rerun()
-
-# --- TAB 4: EXPORTAÇÃO ---
-with tab4:
-    st.subheader("📊 Exportar Relatórios")
-    col_d1, col_d2 = st.columns(2)
-    if not df_bons.empty:
-        csv_b = df_bons.to_csv(index=False, sep=";").encode("utf-8-sig")
-        col_d1.download_button("📥 Baixar Ativos BONS (CSV)", csv_b, "ativos_bons.csv", "text/csv")
-    if not df_ruins.empty:
-        csv_r = df_ruins.to_csv(index=False, sep=";").encode("utf-8-sig")
-        col_d2.download_button("📥 Baixar Ativos RUINS (CSV)", csv_r, "ativos_ruins.csv", "text/csv")
+# --- TAB 1: LISTA GERAL & EDIÇÃO ---
+with
