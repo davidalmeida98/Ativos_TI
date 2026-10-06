@@ -35,20 +35,23 @@ def formatar_nome_exibicao(email: str) -> str:
     return email
 
 def formatar_data_iso(data_input) -> str:
+    """Garante que qualquer data seja convertida com precisão para YYYY-MM-DD aceita pelo Supabase."""
     if isinstance(data_input, (date, datetime)):
         return data_input.strftime("%Y-%m-%d")
     
     texto = str(data_input).strip()
-    if not texto or texto == "None" or texto == "N/A":
+    if not texto or texto in ("None", "N/A", "nan"):
         return datetime.now().strftime("%Y-%m-%d")
     
+    # Se já estiver em YYYY-MM-DD
     try:
         dt = datetime.strptime(texto, "%Y-%m-%d")
         return dt.strftime("%Y-%m-%d")
     except ValueError:
         pass
         
-    for fmt in ("%d-%m-%Y", "%d-%m-%y", "%d/%m/%Y", "%d/%m/%y"):
+    # Formatos brasileiros e variações comuns
+    for fmt in ("%d/%m/%Y", "%d/%m/%y", "%d-%m-%Y", "%d-%m-%y"):
         try:
             dt = datetime.strptime(texto, fmt)
             return dt.strftime("%Y-%m-%d")
@@ -56,6 +59,17 @@ def formatar_data_iso(data_input) -> str:
             pass
             
     return datetime.now().strftime("%Y-%m-%d")
+
+def formatar_data_br(data_str: str) -> str:
+    """Converte YYYY-MM-DD para DD/MM/YYYY para exibição clara na tela."""
+    texto = str(data_str).strip()
+    if not texto or texto in ("None", "N/A", "nan"):
+        return "N/A"
+    try:
+        dt = datetime.strptime(texto[:10], "%Y-%m-%d")
+        return dt.strftime("%d/%m/%Y")
+    except ValueError:
+        return texto
 
 # ==========================================
 # 1. CONFIGURAÇÃO DO SUPABASE
@@ -162,7 +176,6 @@ def carregar_todos_ativos():
                 "setor_anterior": "Setor_Operacao", "data_registro": "Data_Registro"
             }, inplace=True)
             
-            # Ajusta status para Depósito TI - Defeito (Ruim)
             df_r["Status_Geral"] = "Depósito TI - Defeito (Ruim)"
             df_r["Tabela_Origem"] = "ativos_ruins"
             lista_df.append(df_r)
@@ -264,7 +277,7 @@ with tab1:
             cpf = str(row.get("CPF", "")) if pd.notna(row.get("CPF")) and str(row.get("CPF")) != "None" else ""
             setor = str(row.get("Setor_Operacao", "")) if pd.notna(row.get("Setor_Operacao")) and str(row.get("Setor_Operacao")) != "None" else ""
             termo = row.get("Termo", "N/A")
-            data_reg = str(row.get("Data_Registro", datetime.now().strftime("%Y-%m-%d")))
+            data_reg_raw = str(row.get("Data_Registro", datetime.now().strftime("%Y-%m-%d")))
             st_coleta = row.get("Status_Coleta", "N/A")
             num_chamado = str(row.get("Numero_Chamado", "")) if pd.notna(row.get("Numero_Chamado")) and str(row.get("Numero_Chamado")) != "None" else ""
             defeito = str(row.get("Defeito_Descricao", "")) if pd.notna(row.get("Defeito_Descricao")) and str(row.get("Defeito_Descricao")) != "None" else ""
@@ -298,7 +311,7 @@ with tab1:
                     novo_termo = st.selectbox("Status do Termo:", opcoes_termo, index=idx_termo, key=f"trm_{serial}_{idx}")
 
                 with c_e3:
-                    nova_data = st.text_input("Data de Registro / Alteração (AAAA-MM-DD):", value=data_reg, key=f"dt_{serial}_{idx}")
+                    nova_data_str = st.text_input("Data de Registro / Alteração (AAAA-MM-DD):", value=formatar_data_iso(data_reg_raw), key=f"dt_{serial}_{idx}")
                     opcoes_coleta = ["N/A", "Aguardando Coleta", "Coletado pela Vivo", "Coletado pela Empresa Locadora"]
                     idx_coleta = opcoes_coleta.index(st_coleta) if st_coleta in opcoes_coleta else 0
                     novo_st_coleta = st.selectbox("Situação da Coleta:", opcoes_coleta, index=idx_coleta, key=f"col_{serial}_{idx}")
@@ -309,9 +322,8 @@ with tab1:
                 nova_obs = c_bot2.text_input("Observações Gerais:", value=obs, key=f"obs_{serial}_{idx}")
 
                 if st.button("💾 Salvar Alterações", key=f"btn_save_{serial}_{idx}"):
-                    data_formatada = formatar_data_iso(nova_data)
+                    data_formatada = formatar_data_iso(nova_data_str)
                     
-                    # Converte o status amigável da tela para os códigos do banco original
                     status_db = "ENTREGUE" if "Home" in novo_st_geral else ("ESTOQUE" if "Bom" in novo_st_geral else ("DEFEITO" if "Defeito" in novo_st_geral else "COLETADO"))
                     modalidade_db = "Home Office" if "Home" in novo_st_geral else "Depósito TI (Reserva)"
 
@@ -364,7 +376,7 @@ with tab2:
         st.markdown("---")
         st.markdown("##### 3. Informações de Defeito / Coleta / Observações")
         c_cad9, c_cad10, c_cad11, c_cad12 = st.columns(4)
-        data_in = c_cad9.date_input("Data de Registro:", value=date.today())
+        data_in = c_cad9.date_input("Data de Registro:", value=date.today(), format="DD/MM/YYYY")
         st_coleta_in = c_cad10.selectbox("Status de Coleta:", ["N/A", "Aguardando Coleta", "Coletado pela Vivo", "Coletado pela Empresa Locadora"])
         chamado_in = c_cad11.text_input("Nº do Chamado (Opcional):")
         defeito_in = c_cad12.text_input("Descrição do Defeito (Se houver):")
@@ -381,7 +393,6 @@ with tab2:
                 status_db = "ENTREGUE" if "Home" in status_in else ("ESTOQUE" if "Bom" in status_in else ("DEFEITO" if "Defeito" in status_in else "COLETADO"))
                 modalidade_db = "Home Office" if "Home" in status_in else "Depósito TI (Reserva)"
 
-                # Se for cadastrado como defeito, insere na tabela de ruins
                 if "Defeito" in status_in:
                     payload_insert = {
                         "tipo": tipo_in,
