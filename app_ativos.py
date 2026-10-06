@@ -301,4 +301,173 @@ with tab1:
                     nova_data_str = st.text_input("Data de Registro / Alteração (AAAA-MM-DD):", value=formatar_data_iso(data_reg_raw), key=f"dt_{serial}_{idx}")
                     opcoes_coleta = ["N/A", "Aguardando Coleta", "Coletado pela Vivo", "Coletado pela Empresa Locadora"]
                     idx_coleta = opcoes_coleta.index(st_coleta) if st_coleta in opcoes_coleta else 0
-                    novo_st_coleta = st.selectbox("Situação
+                    novo_st_coleta = st.selectbox("Situação da Coleta:", opcoes_coleta, index=idx_coleta, key=f"col_{serial}_{idx}")
+                    novo_chamado = st.text_input("Nº do Chamado:", value=num_chamado, key=f"cham_{serial}_{idx}")
+
+                c_bot1, c_bot2 = st.columns(2)
+                novo_defeito = c_bot1.text_input("Descrição do Defeito (Se houver):", value=defeito, key=f"def_{serial}_{idx}")
+                nova_obs = c_bot2.text_input("Observações Gerais:", value=obs, key=f"obs_{serial}_{idx}")
+
+                col_btn_salvar, col_btn_deletar = st.columns([3, 1])
+
+                with col_btn_salvar:
+                    if st.button("💾 Salvar Alterações", key=f"btn_save_{serial}_{idx}"):
+                        data_formatada = formatar_data_iso(nova_data_str)
+                        
+                        status_db = "ENTREGUE" if "Home" in novo_st_geral else ("ESTOQUE" if "Bom" in novo_st_geral else ("DEFEITO" if "Defeito" in novo_st_geral else "COLETADO"))
+                        modalidade_db = "Home Office" if "Home" in novo_st_geral else "Depósito TI (Reserva)"
+
+                        payload_update = {
+                            "status": status_db,
+                            "usuario": sanitizar_texto(novo_usuario),
+                            "cpf": sanitizar_texto(novo_cpf),
+                            "setor_operacao": sanitizar_texto(novo_setor),
+                            "termo": novo_termo,
+                            "status_coleta": novo_st_coleta,
+                            "numero_chamado": sanitizar_texto(novo_chamado),
+                            "defeito_descricao": sanitizar_texto(novo_defeito),
+                            "observacoes": sanitizar_texto(nova_obs)
+                        }
+                        if tabela_origem == "ativos_bons":
+                            payload_update["data"] = data_formatada
+                            payload_update["modalidade"] = modalidade_db
+                        else:
+                            payload_update["data_registro"] = data_formatada
+
+                        try:
+                            supabase.table(tabela_origem).update(payload_update).eq("serial", serial).execute()
+                            st.success(f"Ativo {serial} atualizado com sucesso!")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Erro ao salvar alterações: {e}")
+
+                with col_btn_deletar:
+                    # Trava de segurança para exclusão
+                    key_del = f"confirm_del_{serial}_{idx}"
+                    if key_del not in st.session_state:
+                        st.session_state[key_del] = False
+
+                    if not st.session_state[key_del]:
+                        if st.button("🗑️ Excluir Ativo", key=f"btn_del_init_{serial}_{idx}"):
+                            st.session_state[key_del] = True
+                            st.rerun()
+                    else:
+                        st.warning("Tem certeza?")
+                        c_d1, c_d2 = st.columns(2)
+                        if c_d1.button("✅ Sim", key=f"btn_del_confirm_{serial}_{idx}"):
+                            try:
+                                supabase.table(tabela_origem).delete().eq("serial", serial).execute()
+                                st.session_state[key_del] = False
+                                st.success(f"Ativo {serial} excluído permanentemente!")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Erro ao excluir: {e}")
+                        if c_d2.button("❌ Não", key=f"btn_del_cancel_{serial}_{idx}"):
+                            st.session_state[key_del] = False
+                            st.rerun()
+    else:
+        st.info("Nenhum ativo cadastrado na base de dados.")
+
+# --- TAB 2: CADASTRO / ATUALIZAÇÃO INTELIGENTE ---
+with tab2:
+    st.subheader("➕ Cadastrar ou Devolver Equipamento")
+    st.caption("💡 Se a Série já existir no sistema, os dados do equipamento serão atualizados automaticamente sem duplicar.")
+    
+    with st.form("form_novo_ativo_completo", clear_on_submit=True):
+        st.markdown("##### 1. Dados Principais do Equipamento")
+        c_cad1, c_cad2, c_cad3, c_cad4 = st.columns(4)
+        tipo_in = c_cad1.selectbox("Tipo:", ["Notebook", "Desktop"])
+        serial_in = sanitizar_texto(c_cad2.text_input("Nº de Série (Obrigatório):"))
+        marca_in = c_cad3.selectbox("Marca:", ["Positivo", "HP", "Lenovo", "Dell", "VAIO", "Outra"])
+        status_in = c_cad4.selectbox("Novo Status / Localização:", LISTA_STATUS)
+
+        st.markdown("---")
+        st.markdown("##### 2. Dados do Usuário & Operação")
+        c_cad5, c_cad6, c_cad7, c_cad8 = st.columns(4)
+        usuario_in = c_cad5.text_input("Nome do Usuário:")
+        cpf_in = c_cad6.text_input("CPF do Usuário:")
+        setor_in = c_cad7.text_input("Setor / Operação:")
+        termo_in = c_cad8.selectbox("Status do Termo:", ["ASSINADO", "PENDENTE", "N/A"])
+
+        st.markdown("---")
+        st.markdown("##### 3. Informações de Defeito / Coleta / Observações")
+        c_cad9, c_cad10, c_cad11, c_cad12 = st.columns(4)
+        data_in = c_cad9.date_input("Data da Operação:", value=date.today(), format="DD/MM/YYYY")
+        st_coleta_in = c_cad10.selectbox("Status de Coleta:", ["N/A", "Aguardando Coleta", "Coletado pela Vivo", "Coletado pela Empresa Locadora"])
+        chamado_in = c_cad11.text_input("Nº do Chamado (Opcional):")
+        defeito_in = c_cad12.text_input("Descrição do Defeito (Se houver):")
+        
+        obs_in = st.text_input("Observações Gerais:")
+
+        btn_cadastrar = st.form_submit_button("🚀 Salvar / Atualizar Ativo na Base", type="primary")
+
+        if btn_cadastrar:
+            if not serial_in:
+                st.error("O Número de Série é obrigatório!")
+            else:
+                data_formatada = formatar_data_iso(data_in)
+                status_db = "ENTREGUE" if "Home" in status_in else ("ESTOQUE" if "Bom" in status_in else ("DEFEITO" if "Defeito" in status_in else "COLETADO"))
+                modalidade_db = "Home Office" if "Home" in status_in else "Depósito TI (Reserva)"
+
+                existe_bons = supabase.table("ativos_bons").select("serial").eq("serial", serial_in).execute()
+                existe_ruins = supabase.table("ativos_ruins").select("serial").eq("serial", serial_in).execute()
+
+                if "Defeito" in status_in:
+                    payload = {
+                        "tipo": tipo_in,
+                        "serial": serial_in,
+                        "marca": marca_in,
+                        "status": "DEFEITO",
+                        "usuario_anterior": sanitizar_texto(usuario_in),
+                        "setor_anterior": sanitizar_texto(setor_in),
+                        "data_registro": data_formatada,
+                        "status_coleta": st_coleta_in,
+                        "numero_chamado": sanitizar_texto(chamado_in),
+                        "defeito_descricao": sanitizar_texto(defeito_in)
+                    }
+                    if existe_ruins.data:
+                        supabase.table("ativos_ruins").update(payload).eq("serial", serial_in).execute()
+                    else:
+                        supabase.table("ativos_ruins").insert(payload).execute()
+                    if existe_bons.data:
+                        supabase.table("ativos_bons").delete().eq("serial", serial_in).execute()
+                else:
+                    payload = {
+                        "tipo": tipo_in,
+                        "serial": serial_in,
+                        "marca": marca_in,
+                        "status": status_db,
+                        "modalidade": modalidade_db,
+                        "usuario": sanitizar_texto(usuario_in),
+                        "cpf": sanitizar_texto(cpf_in),
+                        "setor_operacao": sanitizar_texto(setor_in),
+                        "termo": termo_in,
+                        "data": data_formatada,
+                        "status_coleta": st_coleta_in,
+                        "numero_chamado": sanitizar_texto(chamado_in),
+                        "defeito_descricao": sanitizar_texto(defeito_in),
+                        "observacoes": sanitizar_texto(obs_in)
+                    }
+                    if existe_bons.data:
+                        supabase.table("ativos_bons").update(payload).eq("serial", serial_in).execute()
+                    else:
+                        supabase.table("ativos_bons").insert(payload).execute()
+                    if existe_ruins.data:
+                        supabase.table("ativos_ruins").delete().eq("serial", serial_in).execute()
+
+                st.success(f"Equipamento {serial_in} atualizado/cadastrado com sucesso!")
+                st.rerun()
+
+# --- TAB 3: EXPORTAÇÃO ---
+with tab3:
+    st.subheader("📊 Exportar Relatórios")
+    if not df_ativos.empty:
+        csv_data = df_ativos.to_csv(index=False, sep=";").encode("utf-8-sig")
+        st.download_button(
+            "📥 Baixar Relatório Completo de Ativos (CSV)", 
+            csv_data, 
+            "relatorio_ativos_unificado.csv", 
+            "text/csv"
+        )
+    else:
+        st.info("Nenhum dado disponível para exportação.")
