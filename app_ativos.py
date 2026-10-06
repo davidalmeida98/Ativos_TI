@@ -233,6 +233,9 @@ LISTA_STATUS = [
     "Coletado / Baixado"
 ]
 
+LISTA_MARCAS = ["Positivo", "HP", "Lenovo", "Dell", "VAIO", "Outra"]
+LISTA_TIPOS = ["Notebook", "Desktop"]
+
 # --- TAB 1: LISTA GERAL, EDIÇÃO & EXCLUSÃO ---
 with tab1:
     st.subheader("📋 Inventário Geral")
@@ -256,9 +259,9 @@ with tab1:
         st.markdown("---")
 
         for idx, row in df_view.iterrows():
-            serial = row.get("Serial", "N/A")
+            serial_original = row.get("Serial", "N/A")
             tipo_eq = row.get("Tipo", "Notebook")
-            marca = row.get("Marca", "N/A")
+            marca = row.get("Marca", "Positivo")
             st_geral = str(row.get("Status_Geral", "Depósito TI - Bom (Reserva)"))
             usuario = str(row.get("Usuario", "")) if pd.notna(row.get("Usuario")) and str(row.get("Usuario")) != "None" else ""
             cpf = str(row.get("CPF", "")) if pd.notna(row.get("CPF")) and str(row.get("CPF")) != "None" else ""
@@ -273,7 +276,7 @@ with tab1:
 
             icone = "🏠" if "Home" in st_geral else ("🟢" if "Bom" in st_geral else ("🔴" if "Defeito" in st_geral else "🚚"))
 
-            titulo_header = f"{icone} [{tipo_eq}] Série: {serial} | Status: {st_geral} | Usuário: {usuario if usuario else 'N/A'}"
+            titulo_header = f"{icone} [{tipo_eq}] Série: {serial_original} | Status: {st_geral} | Usuário: {usuario if usuario else 'N/A'}"
 
             with st.expander(titulo_header):
                 st.markdown("### 📝 Editar Informações do Ativo")
@@ -281,43 +284,50 @@ with tab1:
                 c_e1, c_e2, c_e3 = st.columns(3)
                 
                 with c_e1:
-                    st.write(f"**Nº de Série:** {serial}")
-                    st.write(f"**Tipo:** {tipo_eq}")
-                    st.write(f"**Marca:** {marca}")
+                    novo_serial = st.text_input("Nº de Série:", value=serial_original, key=f"srl_{serial_original}_{idx}")
+                    
+                    idx_tipo = LISTA_TIPOS.index(tipo_eq) if tipo_eq in LISTA_TIPOS else 0
+                    novo_tipo = st.selectbox("Tipo:", LISTA_TIPOS, index=idx_tipo, key=f"tp_{serial_original}_{idx}")
+                    
+                    idx_marca = LISTA_MARCAS.index(marca) if marca in LISTA_MARCAS else 0
+                    nova_marca = st.selectbox("Marca:", LISTA_MARCAS, index=idx_marca, key=f"mc_{serial_original}_{idx}")
                     
                     idx_st = LISTA_STATUS.index(st_geral) if st_geral in LISTA_STATUS else 1
-                    novo_st_geral = st.selectbox("Status / Localização:", LISTA_STATUS, index=idx_st, key=f"st_{serial}_{idx}")
+                    novo_st_geral = st.selectbox("Status / Localização:", LISTA_STATUS, index=idx_st, key=f"st_{serial_original}_{idx}")
 
                 with c_e2:
-                    novo_usuario = st.text_input("Nome do Usuário:", value=usuario, key=f"usr_{serial}_{idx}")
-                    novo_cpf = st.text_input("CPF:", value=cpf, key=f"cpf_{serial}_{idx}")
-                    novo_setor = st.text_input("Setor / Operação:", value=setor, key=f"set_{serial}_{idx}")
+                    novo_usuario = st.text_input("Nome do Usuário:", value=usuario, key=f"usr_{serial_original}_{idx}")
+                    novo_cpf = st.text_input("CPF:", value=cpf, key=f"cpf_{serial_original}_{idx}")
+                    novo_setor = st.text_input("Setor / Operação:", value=setor, key=f"set_{serial_original}_{idx}")
                     
                     opcoes_termo = ["ASSINADO", "PENDENTE", "N/A"]
                     idx_termo = opcoes_termo.index(termo) if termo in opcoes_termo else 2
-                    novo_termo = st.selectbox("Status do Termo:", opcoes_termo, index=idx_termo, key=f"trm_{serial}_{idx}")
+                    novo_termo = st.selectbox("Status do Termo:", opcoes_termo, index=idx_termo, key=f"trm_{serial_original}_{idx}")
 
                 with c_e3:
-                    nova_data_str = st.text_input("Data de Registro / Alteração (AAAA-MM-DD):", value=formatar_data_iso(data_reg_raw), key=f"dt_{serial}_{idx}")
+                    nova_data_str = st.text_input("Data de Registro / Alteração (AAAA-MM-DD):", value=formatar_data_iso(data_reg_raw), key=f"dt_{serial_original}_{idx}")
                     opcoes_coleta = ["N/A", "Aguardando Coleta", "Coletado pela Vivo", "Coletado pela Empresa Locadora"]
                     idx_coleta = opcoes_coleta.index(st_coleta) if st_coleta in opcoes_coleta else 0
-                    novo_st_coleta = st.selectbox("Situação da Coleta:", opcoes_coleta, index=idx_coleta, key=f"col_{serial}_{idx}")
-                    novo_chamado = st.text_input("Nº do Chamado:", value=num_chamado, key=f"cham_{serial}_{idx}")
+                    novo_st_coleta = st.selectbox("Situação da Coleta:", opcoes_coleta, index=idx_coleta, key=f"col_{serial_original}_{idx}")
+                    novo_chamado = st.text_input("Nº do Chamado:", value=num_chamado, key=f"cham_{serial_original}_{idx}")
 
                 c_bot1, c_bot2 = st.columns(2)
-                novo_defeito = c_bot1.text_input("Descrição do Defeito (Se houver):", value=defeito, key=f"def_{serial}_{idx}")
-                nova_obs = c_bot2.text_input("Observações Gerais:", value=obs, key=f"obs_{serial}_{idx}")
+                novo_defeito = c_bot1.text_input("Descrição do Defeito (Se houver):", value=defeito, key=f"def_{serial_original}_{idx}")
+                nova_obs = c_bot2.text_input("Observações Gerais:", value=obs, key=f"obs_{serial_original}_{idx}")
 
                 col_btn_salvar, col_btn_deletar = st.columns([3, 1])
 
                 with col_btn_salvar:
-                    if st.button("💾 Salvar Alterações", key=f"btn_save_{serial}_{idx}"):
+                    if st.button("💾 Salvar Alterações", key=f"btn_save_{serial_original}_{idx}"):
                         data_formatada = formatar_data_iso(nova_data_str)
                         
                         status_db = "ENTREGUE" if "Home" in novo_st_geral else ("ESTOQUE" if "Bom" in novo_st_geral else ("DEFEITO" if "Defeito" in novo_st_geral else "COLETADO"))
                         modalidade_db = "Home Office" if "Home" in novo_st_geral else "Depósito TI (Reserva)"
 
                         payload_update = {
+                            "serial": sanitizar_texto(novo_serial),
+                            "tipo": novo_tipo,
+                            "marca": nova_marca,
                             "status": status_db,
                             "usuario": sanitizar_texto(novo_usuario),
                             "cpf": sanitizar_texto(novo_cpf),
@@ -335,34 +345,33 @@ with tab1:
                             payload_update["data_registro"] = data_formatada
 
                         try:
-                            supabase.table(tabela_origem).update(payload_update).eq("serial", serial).execute()
-                            st.success(f"Ativo {serial} atualizado com sucesso!")
+                            supabase.table(tabela_origem).update(payload_update).eq("serial", serial_original).execute()
+                            st.success(f"Ativo {novo_serial} atualizado com sucesso!")
                             st.rerun()
                         except Exception as e:
                             st.error(f"Erro ao salvar alterações: {e}")
 
                 with col_btn_deletar:
-                    # Trava de segurança para exclusão
-                    key_del = f"confirm_del_{serial}_{idx}"
+                    key_del = f"confirm_del_{serial_original}_{idx}"
                     if key_del not in st.session_state:
                         st.session_state[key_del] = False
 
                     if not st.session_state[key_del]:
-                        if st.button("🗑️ Excluir Ativo", key=f"btn_del_init_{serial}_{idx}"):
+                        if st.button("🗑️ Excluir Ativo", key=f"btn_del_init_{serial_original}_{idx}"):
                             st.session_state[key_del] = True
                             st.rerun()
                     else:
                         st.warning("Tem certeza?")
                         c_d1, c_d2 = st.columns(2)
-                        if c_d1.button("✅ Sim", key=f"btn_del_confirm_{serial}_{idx}"):
+                        if c_d1.button("✅ Sim", key=f"btn_del_confirm_{serial_original}_{idx}"):
                             try:
-                                supabase.table(tabela_origem).delete().eq("serial", serial).execute()
+                                supabase.table(tabela_origem).delete().eq("serial", serial_original).execute()
                                 st.session_state[key_del] = False
-                                st.success(f"Ativo {serial} excluído permanentemente!")
+                                st.success(f"Ativo {serial_original} excluído permanentemente!")
                                 st.rerun()
                             except Exception as e:
                                 st.error(f"Erro ao excluir: {e}")
-                        if c_d2.button("❌ Não", key=f"btn_del_cancel_{serial}_{idx}"):
+                        if c_d2.button("❌ Não", key=f"btn_del_cancel_{serial_original}_{idx}"):
                             st.session_state[key_del] = False
                             st.rerun()
     else:
@@ -376,9 +385,9 @@ with tab2:
     with st.form("form_novo_ativo_completo", clear_on_submit=True):
         st.markdown("##### 1. Dados Principais do Equipamento")
         c_cad1, c_cad2, c_cad3, c_cad4 = st.columns(4)
-        tipo_in = c_cad1.selectbox("Tipo:", ["Notebook", "Desktop"])
+        tipo_in = c_cad1.selectbox("Tipo:", LISTA_TIPOS)
         serial_in = sanitizar_texto(c_cad2.text_input("Nº de Série (Obrigatório):"))
-        marca_in = c_cad3.selectbox("Marca:", ["Positivo", "HP", "Lenovo", "Dell", "VAIO", "Outra"])
+        marca_in = c_cad3.selectbox("Marca:", LISTA_MARCAS)
         status_in = c_cad4.selectbox("Novo Status / Localização:", LISTA_STATUS)
 
         st.markdown("---")
