@@ -35,7 +35,6 @@ def formatar_nome_exibicao(email: str) -> str:
     return email
 
 def formatar_data_iso(data_input) -> str:
-    """Garante que qualquer data seja convertida com precisão para YYYY-MM-DD aceita pelo Supabase."""
     if isinstance(data_input, (date, datetime)):
         return data_input.strftime("%Y-%m-%d")
     
@@ -43,14 +42,12 @@ def formatar_data_iso(data_input) -> str:
     if not texto or texto in ("None", "N/A", "nan"):
         return datetime.now().strftime("%Y-%m-%d")
     
-    # Se já estiver em YYYY-MM-DD
     try:
         dt = datetime.strptime(texto, "%Y-%m-%d")
         return dt.strftime("%Y-%m-%d")
     except ValueError:
         pass
         
-    # Formatos brasileiros e variações comuns
     for fmt in ("%d/%m/%Y", "%d/%m/%y", "%d-%m-%Y", "%d-%m-%y"):
         try:
             dt = datetime.strptime(texto, fmt)
@@ -59,17 +56,6 @@ def formatar_data_iso(data_input) -> str:
             pass
             
     return datetime.now().strftime("%Y-%m-%d")
-
-def formatar_data_br(data_str: str) -> str:
-    """Converte YYYY-MM-DD para DD/MM/YYYY para exibição clara na tela."""
-    texto = str(data_str).strip()
-    if not texto or texto in ("None", "N/A", "nan"):
-        return "N/A"
-    try:
-        dt = datetime.strptime(texto[:10], "%Y-%m-%d")
-        return dt.strftime("%d/%m/%Y")
-    except ValueError:
-        return texto
 
 # ==========================================
 # 1. CONFIGURAÇÃO DO SUPABASE
@@ -90,7 +76,7 @@ if "user_email" not in st.session_state:
     st.session_state.user_email = None
 
 # ==========================================
-# 2. TELA DE LOGIN OBRIGATÓRIA (SUPORTA ENTER)
+# 2. TELA DE LOGIN OBRIGATÓRIA (ENTER FUNCIONAL)
 # ==========================================
 if not st.session_state.user_authenticated:
     st.title("🔒 Acesso ao Sistema de Ativos TI")
@@ -122,7 +108,7 @@ if not st.session_state.user_authenticated:
     st.stop()
 
 # ==========================================
-# 3. LEITURA E TRATAMENTO DOS DADOS (BONS + RUINS)
+# 3. LEITURA OTIMIZADA DAS TABELAS
 # ==========================================
 COLUNAS_ESPERADAS = [
     "Tipo", "Serial", "Marca", "Status_Geral", "Usuario", "CPF", 
@@ -187,6 +173,9 @@ def carregar_todos_ativos():
 
     df_unificado = pd.concat(lista_df, ignore_index=True)
 
+    # Remove duplicidades mantendo a informação mais recente pelo Número de Série
+    df_unificado = df_unificado.drop_duplicates(subset=["Serial"], keep="last")
+
     for col in COLUNAS_ESPERADAS:
         if col not in df_unificado.columns:
             df_unificado[col] = "N/A"
@@ -217,7 +206,7 @@ st.title("🖥️ Gestão Unificada de Ativos TI")
 
 df_ativos = carregar_todos_ativos()
 
-# Contadores exatos pelos status
+# Contadores
 total_ativos = len(df_ativos) if not df_ativos.empty else 0
 home_office = len(df_ativos[df_ativos["Status_Geral"] == "Em Uso (Home Office)"]) if not df_ativos.empty else 0
 deposito_bom = len(df_ativos[df_ativos["Status_Geral"] == "Depósito TI - Bom (Reserva)"]) if not df_ativos.empty else 0
@@ -235,7 +224,7 @@ st.markdown("---")
 
 tab1, tab2, tab3 = st.tabs([
     "📋 Lista Geral de Ativos (Consulta & Edição)", 
-    "➕ Cadastrar Novo Ativo", 
+    "➕ Cadastrar / Atualizar Ativo", 
     "📊 Exportar Relatório"
 ])
 
@@ -353,9 +342,10 @@ with tab1:
     else:
         st.info("Nenhum ativo cadastrado na base de dados.")
 
-# --- TAB 2: CADASTRO COMPLETO ---
+# --- TAB 2: CADASTRO / ATUALIZAÇÃO INTELIGENTE (SEM DUPLICIDADE) ---
 with tab2:
-    st.subheader("➕ Cadastrar Novo Equipamento")
+    st.subheader("➕ Cadastrar ou Devolver Equipamento")
+    st.caption("💡 Se a Série já existir no sistema, os dados do equipamento serão atualizados automaticamente sem duplicar.")
     
     with st.form("form_novo_ativo_completo", clear_on_submit=True):
         st.markdown("##### 1. Dados Principais do Equipamento")
@@ -363,7 +353,7 @@ with tab2:
         tipo_in = c_cad1.selectbox("Tipo:", ["Notebook", "Desktop"])
         serial_in = sanitizar_texto(c_cad2.text_input("Nº de Série (Obrigatório):"))
         marca_in = c_cad3.selectbox("Marca:", ["Positivo", "HP", "Lenovo", "Dell", "VAIO", "Outra"])
-        status_in = c_cad4.selectbox("Status / Localização Inicial:", LISTA_STATUS)
+        status_in = c_cad4.selectbox("Novo Status / Localização:", LISTA_STATUS)
 
         st.markdown("---")
         st.markdown("##### 2. Dados do Usuário & Operação")
@@ -376,14 +366,14 @@ with tab2:
         st.markdown("---")
         st.markdown("##### 3. Informações de Defeito / Coleta / Observações")
         c_cad9, c_cad10, c_cad11, c_cad12 = st.columns(4)
-        data_in = c_cad9.date_input("Data de Registro:", value=date.today(), format="DD/MM/YYYY")
+        data_in = c_cad9.date_input("Data da Operação:", value=date.today(), format="DD/MM/YYYY")
         st_coleta_in = c_cad10.selectbox("Status de Coleta:", ["N/A", "Aguardando Coleta", "Coletado pela Vivo", "Coletado pela Empresa Locadora"])
         chamado_in = c_cad11.text_input("Nº do Chamado (Opcional):")
         defeito_in = c_cad12.text_input("Descrição do Defeito (Se houver):")
         
         obs_in = st.text_input("Observações Gerais:")
 
-        btn_cadastrar = st.form_submit_button("🚀 Cadastrar Ativo na Base", type="primary")
+        btn_cadastrar = st.form_submit_button("🚀 Salvar / Atualizar Ativo na Base", type="primary")
 
         if btn_cadastrar:
             if not serial_in:
@@ -393,8 +383,12 @@ with tab2:
                 status_db = "ENTREGUE" if "Home" in status_in else ("ESTOQUE" if "Bom" in status_in else ("DEFEITO" if "Defeito" in status_in else "COLETADO"))
                 modalidade_db = "Home Office" if "Home" in status_in else "Depósito TI (Reserva)"
 
+                # Verifica se o equipamento já existe em ativos_bons ou ativos_ruins
+                existe_bons = supabase.table("ativos_bons").select("serial").eq("serial", serial_in).execute()
+                existe_ruins = supabase.table("ativos_ruins").select("serial").eq("serial", serial_in).execute()
+
                 if "Defeito" in status_in:
-                    payload_insert = {
+                    payload = {
                         "tipo": tipo_in,
                         "serial": serial_in,
                         "marca": marca_in,
@@ -406,9 +400,15 @@ with tab2:
                         "numero_chamado": sanitizar_texto(chamado_in),
                         "defeito_descricao": sanitizar_texto(defeito_in)
                     }
-                    tabela_alvo = "ativos_ruins"
+                    if existe_ruins.data:
+                        supabase.table("ativos_ruins").update(payload).eq("serial", serial_in).execute()
+                    else:
+                        supabase.table("ativos_ruins").insert(payload).execute()
+                    # Se estava em ativos_bons, remove de lá para não duplicar
+                    if existe_bons.data:
+                        supabase.table("ativos_bons").delete().eq("serial", serial_in).execute()
                 else:
-                    payload_insert = {
+                    payload = {
                         "tipo": tipo_in,
                         "serial": serial_in,
                         "marca": marca_in,
@@ -424,14 +424,16 @@ with tab2:
                         "defeito_descricao": sanitizar_texto(defeito_in),
                         "observacoes": sanitizar_texto(obs_in)
                     }
-                    tabela_alvo = "ativos_bons"
+                    if existe_bons.data:
+                        supabase.table("ativos_bons").update(payload).eq("serial", serial_in).execute()
+                    else:
+                        supabase.table("ativos_bons").insert(payload).execute()
+                    # Se estava em ativos_ruins e agora é bom/Home Office, remove de ativos_ruins
+                    if existe_ruins.data:
+                        supabase.table("ativos_ruins").delete().eq("serial", serial_in).execute()
 
-                try:
-                    supabase.table(tabela_alvo).insert(payload_insert).execute()
-                    st.success(f"Equipamento {serial_in} cadastrado com sucesso!")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Erro ao cadastrar equipamento: {e}")
+                st.success(f"Equipamento {serial_in} atualizado/cadastrado com sucesso!")
+                st.rerun()
 
 # --- TAB 3: EXPORTAÇÃO ---
 with tab3:
