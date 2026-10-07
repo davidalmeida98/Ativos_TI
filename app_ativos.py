@@ -323,8 +323,9 @@ with tab1:
                     if st.button("💾 Salvar Alterações", key=f"btn_save_{serial_original}_{idx}"):
                         data_formatada = formatar_data_iso(nova_data_str)
                         
-                        status_db = "ENTREGUE" if "Home" in novo_st_geral or "Operação" in novo_st_geral or "Portaria" in novo_st_geral else ("ESTOQUE" if "Bom" in novo_st_geral else ("DEFEITO" if "Defeito" in novo_st_geral else "COLETADO"))
-                        modalidade_db = novo_st_geral
+                        # Mapeamento limpo para o banco de dados
+                        status_db = "ENTREGUE" if novo_st_geral in ["Em Uso (Home Office)", "Operação (Presencial / PAs)", "Portaria / Recepção"] else ("ESTOQUE" if "Bom" in novo_st_geral else ("DEFEITO" if "Defeito" in novo_st_geral else "COLETADO"))
+                        modalidade_db = "Home Office" if novo_st_geral == "Em Uso (Home Office)" else ("Operacao" if "Operação" in novo_st_geral else ("Portaria" if "Portaria" in novo_st_geral else "Depósito TI (Reserva)"))
 
                         payload_update = {
                             "serial": sanitizar_texto(novo_serial),
@@ -417,8 +418,8 @@ with tab2:
                 st.error("O Número de Série é obrigatório!")
             else:
                 data_formatada = formatar_data_iso(data_in)
-                status_db = "ENTREGUE" if "Home" in status_in or "Operação" in status_in or "Portaria" in status_in else ("ESTOQUE" if "Bom" in status_in else ("DEFEITO" if "Defeito" in status_in else "COLETADO"))
-                modalidade_db = status_in
+                status_db = "ENTREGUE" if status_in in ["Em Uso (Home Office)", "Operação (Presencial / PAs)", "Portaria / Recepção"] else ("ESTOQUE" if "Bom" in status_in else ("DEFEITO" if "Defeito" in status_in else "COLETADO"))
+                modalidade_db = "Home Office" if status_in == "Em Uso (Home Office)" else ("Operacao" if "Operação" in status_in else ("Portaria" if "Portaria" in status_in else "Depósito TI (Reserva)"))
 
                 existe_bons = supabase.table("ativos_bons").select("serial").eq("serial", serial_in).execute()
                 existe_ruins = supabase.table("ativos_ruins").select("serial").eq("serial", serial_in).execute()
