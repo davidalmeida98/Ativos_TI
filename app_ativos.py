@@ -69,7 +69,6 @@ def init_supabase() -> Client:
 
 supabase = init_supabase()
 
-# Controle de sessão por navegador
 if "user_authenticated" not in st.session_state:
     st.session_state.user_authenticated = False
 if "user_email" not in st.session_state:
@@ -132,7 +131,6 @@ def normalizar_status_bon(row):
 def carregar_todos_ativos():
     lista_df = []
     
-    # 1. Carrega ativos_bons
     try:
         res_bons = supabase.table("ativos_bons").select("*").execute()
         df_b = pd.DataFrame(res_bons.data)
@@ -150,7 +148,6 @@ def carregar_todos_ativos():
     except Exception as e:
         st.error(f"Erro ao carregar ativos operacionais: {e}")
 
-    # 2. Carrega ativos_ruins
     try:
         res_ruins = supabase.table("ativos_ruins").select("*").execute()
         df_r = pd.DataFrame(res_ruins.data)
@@ -204,7 +201,6 @@ st.title("🖥️ Gestão Unificada de Ativos TI")
 
 df_ativos = carregar_todos_ativos()
 
-# Contadores
 total_ativos = len(df_ativos) if not df_ativos.empty else 0
 home_office = len(df_ativos[df_ativos["Status_Geral"] == "Em Uso (Home Office)"]) if not df_ativos.empty else 0
 deposito_bom = len(df_ativos[df_ativos["Status_Geral"] == "Depósito TI - Bom (Reserva)"]) if not df_ativos.empty else 0
@@ -233,8 +229,7 @@ LISTA_STATUS = [
     "Coletado / Baixado"
 ]
 
-LISTA_MARCAS = ["Positivo", "HP", "Lenovo", "Dell", "VAIO", "Outra"]
-LISTA_TIPOS = ["Notebook", "Desktop"]
+LISTA_TIPOS = ["Notebook", "Desktop", "Monitor", "Periférico", "Servidor", "Outro"]
 
 # --- TAB 1: LISTA GERAL, EDIÇÃO & EXCLUSÃO ---
 with tab1:
@@ -243,7 +238,7 @@ with tab1:
     col_f1, col_f2, col_f3 = st.columns(3)
     busca = sanitizar_texto(col_f1.text_input("🔍 Buscar por Série, Usuário, Setor ou Marca:", key="busca_geral"))
     filtro_status = col_f2.selectbox("Filtrar por Status / Localização:", ["Todos"] + LISTA_STATUS, key="f_st")
-    filtro_tipo = col_f3.selectbox("Filtrar por Tipo:", ["Todos", "Notebook", "Desktop"], key="f_tp")
+    filtro_tipo = col_f3.selectbox("Filtrar por Tipo:", ["Todos"] + LISTA_TIPOS, key="f_tp")
 
     df_view = df_ativos.copy()
     if not df_view.empty:
@@ -260,8 +255,8 @@ with tab1:
 
         for idx, row in df_view.iterrows():
             serial_original = row.get("Serial", "N/A")
-            tipo_eq = row.get("Tipo", "Notebook")
-            marca = row.get("Marca", "Positivo")
+            tipo_eq = str(row.get("Tipo", "Notebook"))
+            marca = str(row.get("Marca", "Positivo"))
             st_geral = str(row.get("Status_Geral", "Depósito TI - Bom (Reserva)"))
             usuario = str(row.get("Usuario", "")) if pd.notna(row.get("Usuario")) and str(row.get("Usuario")) != "None" else ""
             cpf = str(row.get("CPF", "")) if pd.notna(row.get("CPF")) and str(row.get("CPF")) != "None" else ""
@@ -276,7 +271,7 @@ with tab1:
 
             icone = "🏠" if "Home" in st_geral else ("🟢" if "Bom" in st_geral else ("🔴" if "Defeito" in st_geral else "🚚"))
 
-            titulo_header = f"{icone} [{tipo_eq}] Série: {serial_original} | Status: {st_geral} | Usuário: {usuario if usuario else 'N/A'}"
+            titulo_header = f"{icone} [{tipo_eq}] Série: {serial_original} | Marca: {marca} | Status: {st_geral} | Usuário: {usuario if usuario else 'N/A'}"
 
             with st.expander(titulo_header):
                 st.markdown("### 📝 Editar Informações do Ativo")
@@ -289,8 +284,8 @@ with tab1:
                     idx_tipo = LISTA_TIPOS.index(tipo_eq) if tipo_eq in LISTA_TIPOS else 0
                     novo_tipo = st.selectbox("Tipo:", LISTA_TIPOS, index=idx_tipo, key=f"tp_{serial_original}_{idx}")
                     
-                    idx_marca = LISTA_MARCAS.index(marca) if marca in LISTA_MARCAS else 0
-                    nova_marca = st.selectbox("Marca:", LISTA_MARCAS, index=idx_marca, key=f"mc_{serial_original}_{idx}")
+                    # Permite texto livre para Marca
+                    nova_marca = st.text_input("Marca:", value=marca, key=f"mc_{serial_original}_{idx}")
                     
                     idx_st = LISTA_STATUS.index(st_geral) if st_geral in LISTA_STATUS else 1
                     novo_st_geral = st.selectbox("Status / Localização:", LISTA_STATUS, index=idx_st, key=f"st_{serial_original}_{idx}")
@@ -320,14 +315,13 @@ with tab1:
                 with col_btn_salvar:
                     if st.button("💾 Salvar Alterações", key=f"btn_save_{serial_original}_{idx}"):
                         data_formatada = formatar_data_iso(nova_data_str)
-                        
                         status_db = "ENTREGUE" if "Home" in novo_st_geral else ("ESTOQUE" if "Bom" in novo_st_geral else ("DEFEITO" if "Defeito" in novo_st_geral else "COLETADO"))
                         modalidade_db = "Home Office" if "Home" in novo_st_geral else "Depósito TI (Reserva)"
 
                         payload_update = {
                             "serial": sanitizar_texto(novo_serial),
                             "tipo": novo_tipo,
-                            "marca": nova_marca,
+                            "marca": sanitizar_texto(nova_marca),
                             "status": status_db,
                             "usuario": sanitizar_texto(novo_usuario),
                             "cpf": sanitizar_texto(novo_cpf),
@@ -349,7 +343,7 @@ with tab1:
                             st.success(f"Ativo {novo_serial} atualizado com sucesso!")
                             st.rerun()
                         except Exception as e:
-                            st.error(f"Erro ao salvar alterações: {e}")
+                            st.error(f"Erro ao salvar alterações no Supabase: {e}")
 
                 with col_btn_deletar:
                     key_del = f"confirm_del_{serial_original}_{idx}"
@@ -387,7 +381,7 @@ with tab2:
         c_cad1, c_cad2, c_cad3, c_cad4 = st.columns(4)
         tipo_in = c_cad1.selectbox("Tipo:", LISTA_TIPOS)
         serial_in = sanitizar_texto(c_cad2.text_input("Nº de Série (Obrigatório):"))
-        marca_in = c_cad3.selectbox("Marca:", LISTA_MARCAS)
+        marca_in = c_cad3.text_input("Marca (Ex: Positivo, Dell, Lenovo, HP):", value="Positivo")
         status_in = c_cad4.selectbox("Novo Status / Localização:", LISTA_STATUS)
 
         st.markdown("---")
@@ -425,7 +419,7 @@ with tab2:
                     payload = {
                         "tipo": tipo_in,
                         "serial": serial_in,
-                        "marca": marca_in,
+                        "marca": sanitizar_texto(marca_in),
                         "status": "DEFEITO",
                         "usuario_anterior": sanitizar_texto(usuario_in),
                         "setor_anterior": sanitizar_texto(setor_in),
@@ -444,7 +438,7 @@ with tab2:
                     payload = {
                         "tipo": tipo_in,
                         "serial": serial_in,
-                        "marca": marca_in,
+                        "marca": sanitizar_texto(marca_in),
                         "status": status_db,
                         "modalidade": modalidade_db,
                         "usuario": sanitizar_texto(usuario_in),
