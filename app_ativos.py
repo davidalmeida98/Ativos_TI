@@ -115,16 +115,31 @@ COLUNAS_ESPERADAS = [
     "Numero_Chamado", "Defeito_Descricao", "Observacoes", "Tabela_Origem"
 ]
 
+LISTA_STATUS = [
+    "Em Uso (Home Office)", 
+    "Operação (Presencial / PAs)",
+    "Portaria / Recepção",
+    "Depósito TI - Bom (Reserva)", 
+    "Depósito TI - Defeito (Ruim)", 
+    "Coletado / Baixado / Devolvido"
+]
+
+LISTA_TIPOS = ["Notebook", "Desktop", "Monitor", "Periférico", "Servidor", "Outro"]
+
 def normalizar_status_bon(row):
     status_raw = str(row.get("status", "")).upper()
     modalidade_raw = str(row.get("modalidade", "")).lower()
     
-    if "ENTREGUE" in status_raw or "home" in modalidade_raw:
+    if "PORTARIA" in status_raw or "portaria" in modalidade_raw:
+        return "Portaria / Recepção"
+    elif "OPERAÇÃO" in status_raw or "operacao" in modalidade_raw or "presencial" in modalidade_raw:
+        return "Operação (Presencial / PAs)"
+    elif "ENTREGUE" in status_raw or "home" in modalidade_raw:
         return "Em Uso (Home Office)"
     elif "ESTOQUE" in status_raw or "deposito" in modalidade_raw or "reserva" in modalidade_raw:
         return "Depósito TI - Bom (Reserva)"
     elif "COLETADO" in status_raw or "BAIXA" in status_raw:
-        return "Coletado / Baixado"
+        return "Coletado / Baixado / Devolvido"
     else:
         return "Depósito TI - Bom (Reserva)"
 
@@ -203,16 +218,18 @@ df_ativos = carregar_todos_ativos()
 
 total_ativos = len(df_ativos) if not df_ativos.empty else 0
 home_office = len(df_ativos[df_ativos["Status_Geral"] == "Em Uso (Home Office)"]) if not df_ativos.empty else 0
+operacao_presencial = len(df_ativos[df_ativos["Status_Geral"] == "Operação (Presencial / PAs)"]) if not df_ativos.empty else 0
+portaria = len(df_ativos[df_ativos["Status_Geral"] == "Portaria / Recepção"]) if not df_ativos.empty else 0
 deposito_bom = len(df_ativos[df_ativos["Status_Geral"] == "Depósito TI - Bom (Reserva)"]) if not df_ativos.empty else 0
 deposito_ruim = len(df_ativos[df_ativos["Status_Geral"] == "Depósito TI - Defeito (Ruim)"]) if not df_ativos.empty else 0
-coletados = len(df_ativos[df_ativos["Status_Geral"] == "Coletado / Baixado"]) if not df_ativos.empty else 0
 
-c1, c2, c3, c4, c5 = st.columns(5)
-c1.metric("📦 Total de Ativos", total_ativos)
+c1, c2, c3, c4, c5, c6 = st.columns(6)
+c1.metric("📦 Total Ativos", total_ativos)
 c2.metric("🏠 Home Office", home_office)
-c3.metric("🟢 Depósito (Bom)", deposito_bom)
-c4.metric("🔴 Depósito (Ruim)", deposito_ruim)
-c5.metric("🚚 Coletados / Baixa", coletados)
+c3.metric("🏢 Operação PA", operacao_presencial)
+c4.metric("🚪 Portaria", portaria)
+c5.metric("🟢 Depósito (Bom)", deposito_bom)
+c6.metric("🔴 Depósito (Ruim)", deposito_ruim)
 
 st.markdown("---")
 
@@ -221,15 +238,6 @@ tab1, tab2, tab3 = st.tabs([
     "➕ Cadastrar / Atualizar Ativo", 
     "📊 Exportar Relatório"
 ])
-
-LISTA_STATUS = [
-    "Em Uso (Home Office)", 
-    "Depósito TI - Bom (Reserva)", 
-    "Depósito TI - Defeito (Ruim)", 
-    "Coletado / Baixado"
-]
-
-LISTA_TIPOS = ["Notebook", "Desktop", "Monitor", "Periférico", "Servidor", "Outro"]
 
 # --- TAB 1: LISTA GERAL, EDIÇÃO & EXCLUSÃO ---
 with tab1:
@@ -269,9 +277,9 @@ with tab1:
             obs = str(row.get("Observacoes", "")) if pd.notna(row.get("Observacoes")) and str(row.get("Observacoes")) != "None" else ""
             tabela_origem = row.get("Tabela_Origem", "ativos_bons")
 
-            icone = "🏠" if "Home" in st_geral else ("🟢" if "Bom" in st_geral else ("🔴" if "Defeito" in st_geral else "🚚"))
+            icone = "🏠" if "Home" in st_geral else ("🏢" if "Operação" in st_geral else ("🚪" if "Portaria" in st_geral else ("🟢" if "Bom" in st_geral else ("🔴" if "Defeito" in st_geral else "🚚"))))
 
-            titulo_header = f"{icone} [{tipo_eq}] Série: {serial_original} | Marca: {marca} | Status: {st_geral} | Usuário: {usuario if usuario else 'N/A'}"
+            titulo_header = f"{icone} [{tipo_eq}] Série: {serial_original} | Marca: {marca} | Status: {st_geral} | Usuário/Local: {usuario if usuario else 'N/A'}"
 
             with st.expander(titulo_header):
                 st.markdown("### 📝 Editar Informações do Ativo")
@@ -284,16 +292,15 @@ with tab1:
                     idx_tipo = LISTA_TIPOS.index(tipo_eq) if tipo_eq in LISTA_TIPOS else 0
                     novo_tipo = st.selectbox("Tipo:", LISTA_TIPOS, index=idx_tipo, key=f"tp_{serial_original}_{idx}")
                     
-                    # Permite texto livre para Marca
                     nova_marca = st.text_input("Marca:", value=marca, key=f"mc_{serial_original}_{idx}")
                     
-                    idx_st = LISTA_STATUS.index(st_geral) if st_geral in LISTA_STATUS else 1
-                    novo_st_geral = st.selectbox("Status / Localização:", LISTA_STATUS, index=idx_st, key=f"st_{serial_original}_{idx}")
+                    idx_st = LISTA_STATUS.index(st_geral) if st_geral in LISTA_STATUS else 3
+                    novo_st_geral = st.selectbox("Status / Localização Geral:", LISTA_STATUS, index=idx_st, key=f"st_{serial_original}_{idx}")
 
                 with c_e2:
-                    novo_usuario = st.text_input("Nome do Usuário:", value=usuario, key=f"usr_{serial_original}_{idx}")
+                    novo_usuario = st.text_input("Usuário / Responsável:", value=usuario, key=f"usr_{serial_original}_{idx}")
                     novo_cpf = st.text_input("CPF:", value=cpf, key=f"cpf_{serial_original}_{idx}")
-                    novo_setor = st.text_input("Setor / Operação:", value=setor, key=f"set_{serial_original}_{idx}")
+                    novo_setor = st.text_input("Setor / Detalhes do Local (Ex: PA-05, Portaria 1):", value=setor, key=f"set_{serial_original}_{idx}")
                     
                     opcoes_termo = ["ASSINADO", "PENDENTE", "N/A"]
                     idx_termo = opcoes_termo.index(termo) if termo in opcoes_termo else 2
@@ -315,8 +322,9 @@ with tab1:
                 with col_btn_salvar:
                     if st.button("💾 Salvar Alterações", key=f"btn_save_{serial_original}_{idx}"):
                         data_formatada = formatar_data_iso(nova_data_str)
-                        status_db = "ENTREGUE" if "Home" in novo_st_geral else ("ESTOQUE" if "Bom" in novo_st_geral else ("DEFEITO" if "Defeito" in novo_st_geral else "COLETADO"))
-                        modalidade_db = "Home Office" if "Home" in novo_st_geral else "Depósito TI (Reserva)"
+                        
+                        status_db = "ENTREGUE" if "Home" in novo_st_geral or "Operação" in novo_st_geral or "Portaria" in novo_st_geral else ("ESTOQUE" if "Bom" in novo_st_geral else ("DEFEITO" if "Defeito" in novo_st_geral else "COLETADO"))
+                        modalidade_db = novo_st_geral
 
                         payload_update = {
                             "serial": sanitizar_texto(novo_serial),
@@ -382,14 +390,14 @@ with tab2:
         tipo_in = c_cad1.selectbox("Tipo:", LISTA_TIPOS)
         serial_in = sanitizar_texto(c_cad2.text_input("Nº de Série (Obrigatório):"))
         marca_in = c_cad3.text_input("Marca (Ex: Positivo, Dell, Lenovo, HP):", value="Positivo")
-        status_in = c_cad4.selectbox("Novo Status / Localização:", LISTA_STATUS)
+        status_in = c_cad4.selectbox("Novo Status / Localização Geral:", LISTA_STATUS)
 
         st.markdown("---")
-        st.markdown("##### 2. Dados do Usuário & Operação")
+        st.markdown("##### 2. Dados do Usuário & Localização Detalhada")
         c_cad5, c_cad6, c_cad7, c_cad8 = st.columns(4)
-        usuario_in = c_cad5.text_input("Nome do Usuário:")
-        cpf_in = c_cad6.text_input("CPF do Usuário:")
-        setor_in = c_cad7.text_input("Setor / Operação:")
+        usuario_in = c_cad5.text_input("Nome do Usuário / Responsável:")
+        cpf_in = c_cad6.text_input("CPF do Usuário (Opcional):")
+        setor_in = c_cad7.text_input("Detalhes do Local (Ex: PA-05, Portaria Principal, Adm):")
         termo_in = c_cad8.selectbox("Status do Termo:", ["ASSINADO", "PENDENTE", "N/A"])
 
         st.markdown("---")
@@ -409,8 +417,8 @@ with tab2:
                 st.error("O Número de Série é obrigatório!")
             else:
                 data_formatada = formatar_data_iso(data_in)
-                status_db = "ENTREGUE" if "Home" in status_in else ("ESTOQUE" if "Bom" in status_in else ("DEFEITO" if "Defeito" in status_in else "COLETADO"))
-                modalidade_db = "Home Office" if "Home" in status_in else "Depósito TI (Reserva)"
+                status_db = "ENTREGUE" if "Home" in status_in or "Operação" in status_in or "Portaria" in status_in else ("ESTOQUE" if "Bom" in status_in else ("DEFEITO" if "Defeito" in status_in else "COLETADO"))
+                modalidade_db = status_in
 
                 existe_bons = supabase.table("ativos_bons").select("serial").eq("serial", serial_in).execute()
                 existe_ruins = supabase.table("ativos_ruins").select("serial").eq("serial", serial_in).execute()
