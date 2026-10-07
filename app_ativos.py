@@ -120,7 +120,7 @@ LISTA_STATUS = [
     "Em Uso (Home Office / Remoto)", 
     "Alocado em Unidade / Operação / Setor",
     "Data Center / Sala de Servidores / Rack",
-    "Infraestrutura Predial / Portaria / Acesso",
+    "Portaria / Recepção / Acesso",
     "Depósito TI - Bom (Reserva Tecnológica)", 
     "Depósito TI - Defeito / Manutenção", 
     "Em Trânsito / Transferência / Devolvido"
@@ -138,17 +138,22 @@ LISTA_TIPOS = [
 
 def normalizar_status_bon(row):
     status_raw = str(row.get("status", "")).upper()
-    modalidade_raw = str(row.get("modalidade", "")).lower()
+    modalidade_raw = str(row.get("modalidade", "")).upper()
     
-    if "SERVER" in status_raw or "data center" in modalidade_raw or "rack" in modalidade_raw or "servidor" in modalidade_raw:
+    val_mod = str(row.get("modalidade", "")).strip()
+    if val_mod in LISTA_STATUS:
+        return val_mod
+
+    # Regras de prioridade para categorização limpa
+    if "PORTARIA" in status_raw or "PORTARIA" in modalidade_raw or "RECEPÇÃO" in modalidade_raw or "RECEPCAO" in modalidade_raw:
+        return "Portaria / Recepção / Acesso"
+    elif "DATA CENTER" in modalidade_raw or "RACK" in modalidade_raw or "SERVIDOR" in modalidade_raw or "SERVER" in status_raw or "DATA CENTER" in status_raw:
         return "Data Center / Sala de Servidores / Rack"
-    elif "PORTARIA" in status_raw or "portaria" in modalidade_raw or "acesso" in modalidade_raw:
-        return "Infraestrutura Predial / Portaria / Acesso"
-    elif "OPERAÇÃO" in status_raw or "operacao" in modalidade_raw or "presencial" in modalidade_raw or "unidade" in modalidade_raw:
+    elif "OPERAÇÃO" in status_raw or "OPERACAO" in modalidade_raw or "PRESENCIAL" in modalidade_raw or "UNIDADE" in modalidade_raw:
         return "Alocado em Unidade / Operação / Setor"
-    elif "ENTREGUE" in status_raw or "home" in modalidade_raw:
+    elif "ENTREGUE" in status_raw or "HOME" in modalidade_raw:
         return "Em Uso (Home Office / Remoto)"
-    elif "ESTOQUE" in status_raw or "deposito" in modalidade_raw or "reserva" in modalidade_raw:
+    elif "ESTOQUE" in status_raw or "DEPOSITO" in modalidade_raw or "RESERVA" in modalidade_raw:
         return "Depósito TI - Bom (Reserva Tecnológica)"
     elif "COLETADO" in status_raw or "BAIXA" in status_raw or "TRANSITO" in status_raw:
         return "Em Trânsito / Transferência / Devolvido"
@@ -231,17 +236,19 @@ df_ativos = carregar_todos_ativos()
 total_ativos = len(df_ativos) if not df_ativos.empty else 0
 home_office = len(df_ativos[df_ativos["Status_Geral"] == "Em Uso (Home Office / Remoto)"]) if not df_ativos.empty else 0
 unidades_operacao = len(df_ativos[df_ativos["Status_Geral"] == "Alocado em Unidade / Operação / Setor"]) if not df_ativos.empty else 0
-datacenter_infra = len(df_ativos[df_ativos["Status_Geral"].isin(["Data Center / Sala de Servidores / Rack", "Infraestrutura Predial / Portaria / Acesso"])]) if not df_ativos.empty else 0
+datacenter_count = len(df_ativos[df_ativos["Status_Geral"] == "Data Center / Sala de Servidores / Rack"]) if not df_ativos.empty else 0
+portaria_count = len(df_ativos[df_ativos["Status_Geral"] == "Portaria / Recepção / Acesso"]) if not df_ativos.empty else 0
 deposito_bom = len(df_ativos[df_ativos["Status_Geral"] == "Depósito TI - Bom (Reserva Tecnológica)"]) if not df_ativos.empty else 0
 deposito_ruim = len(df_ativos[df_ativos["Status_Geral"] == "Depósito TI - Defeito / Manutenção"]) if not df_ativos.empty else 0
 
-c1, c2, c3, c4, c5, c6 = st.columns(6)
-c1.metric("📦 Total de Ativos", total_ativos)
+c1, c2, c3, c4, c5, c6, c7 = st.columns(7)
+c1.metric("📦 Total Ativos", total_ativos)
 c2.metric("🏠 Home Office", home_office)
-c3.metric("🏢 Operação / Unidades", unidades_operacao)
-c4.metric("🖥️ Data Center / Infra", datacenter_infra)
-c5.metric("🟢 Depósito (Bom)", deposito_bom)
-c6.metric("🔴 Defeito / Manutenção", deposito_ruim)
+c3.metric("🏢 Operação", unidades_operacao)
+c4.metric("🖥️ Data Center", datacenter_count)
+c5.metric("🚪 Portaria", portaria_count)
+c6.metric("🟢 Depósito (Bom)", deposito_bom)
+c7.metric("🔴 Defeito", deposito_ruim)
 
 st.markdown("---")
 
@@ -289,7 +296,7 @@ with tab1:
             obs = sanitizar_texto(row.get("Observacoes"))
             tabela_origem = row.get("Tabela_Origem", "ativos_bons")
 
-            icone = "🏠" if "Home" in st_geral else ("🖥️" if "Data Center" in st_geral else ("🚪" if "Infraestrutura" in st_geral else ("🏢" if "Unidade" in st_geral else ("🟢" if "Bom" in st_geral else ("🔴" if "Defeito" in st_geral else "🚚")))))
+            icone = "🏠" if "Home" in st_geral else ("🖥️" if "Data Center" in st_geral else ("🚪" if "Portaria" in st_geral else ("🏢" if "Unidade" in st_geral else ("🟢" if "Bom" in st_geral else ("🔴" if "Defeito" in st_geral else "🚚")))))
 
             titulo_header = f"{icone} [{tipo_eq}] Série: {serial_original} | Marca: {marca} | Status: {st_geral} | Resp./Local: {usuario if usuario else (setor if setor else 'N/A')}"
 
@@ -335,7 +342,7 @@ with tab1:
                     if st.button("💾 Salvar Alterações", key=f"btn_save_{serial_original}_{idx}"):
                         data_formatada = formatar_data_iso(nova_data_str)
                         
-                        status_db = "ENTREGUE" if novo_st_geral in ["Em Uso (Home Office / Remoto)", "Alocado em Unidade / Operação / Setor", "Data Center / Sala de Servidores / Rack", "Infraestrutura Predial / Portaria / Acesso"] else ("ESTOQUE" if "Bom" in novo_st_geral else ("DEFEITO" if "Defeito" in novo_st_geral else "COLETADO"))
+                        status_db = "ENTREGUE" if novo_st_geral in ["Em Uso (Home Office / Remoto)", "Alocado em Unidade / Operação / Setor", "Data Center / Sala de Servidores / Rack", "Portaria / Recepção / Acesso"] else ("ESTOQUE" if "Bom" in novo_st_geral else ("DEFEITO" if "Defeito" in novo_st_geral else "COLETADO"))
                         modalidade_db = novo_st_geral
 
                         payload_update = {
@@ -429,7 +436,7 @@ with tab2:
                 st.error("O Número de Série é obrigatório!")
             else:
                 data_formatada = formatar_data_iso(data_in)
-                status_db = "ENTREGUE" if status_in in ["Em Uso (Home Office / Remoto)", "Alocado em Unidade / Operação / Setor", "Data Center / Sala de Servidores / Rack", "Infraestrutura Predial / Portaria / Acesso"] else ("ESTOQUE" if "Bom" in status_in else ("DEFEITO" if "Defeito" in status_in else "COLETADO"))
+                status_db = "ENTREGUE" if status_in in ["Em Uso (Home Office / Remoto)", "Alocado em Unidade / Operação / Setor", "Data Center / Sala de Servidores / Rack", "Portaria / Recepção / Acesso"] else ("ESTOQUE" if "Bom" in status_in else ("DEFEITO" if "Defeito" in status_in else "COLETADO"))
                 modalidade_db = status_in
 
                 try:
